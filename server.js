@@ -103,7 +103,7 @@ const server=http.createServer(app);
 const io=new Server(server,{cors:{origin:true,credentials:false},pingTimeout:20000,pingInterval:10000});
 app.use(express.static(path.join(__dirname,'public'),{maxAge:0}));
 app.get('/api/health',(req,res)=>res.json({ok:true,rooms:rooms.size,version:'2.0.0'}));
-app.get('*',(req,res)=>res.sendFile(path.join(__dirname,'public','index.html')));
+app.use((req,res)=>res.sendFile(path.join(__dirname,'public','index.html')));
 
 io.on('connection',(socket)=>{
   socket.on('room:create',(payload={},cb=()=>{})=>{
@@ -177,4 +177,5 @@ setInterval(()=>{
 },60000).unref();
 
 server.listen(PORT,'0.0.0.0',()=>console.log(`Wonky Tower listening on ${PORT}`));
+
 
