@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#211a58" />
+  <meta name="description" content="A tiny two-player browser stacking game." />
+  <title>Wonky Tower</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="app-shell">
+    <header class="brand">
+      <div>
+        <div class="eyebrow">TWO PLAYER BROWSER STACKER</div>
+        <h1>WONKY <span>TOWER</span></h1>
+      </div>
+      <div id="connectionBadge" class="badge waiting">CREATING ROOM</div>
+    </header>
+
+    <section id="lobby" class="panel lobby">
+      <div class="lobby-copy">
+        <h2 id="lobbyTitle">Making your room…</h2>
+        <p id="lobbyText">Keep this page open. Sabrina joins through the private room link below.</p>
+      </div>
+
+      <div id="inviteWrap" class="invite-wrap hidden">
+        <label for="inviteLink">Invite link</label>
+        <div class="invite-row">
+          <input id="inviteLink" type="text" readonly aria-label="Invite link" />
+          <button id="copyInvite" type="button" class="button secondary">Copy</button>
+        </div>
+        <button id="shareInvite" type="button" class="button hot">Invite Sabrina</button>
+      </div>
+
+      <div id="joinHint" class="join-hint">
+        <div class="spinner" aria-hidden="true"></div>
+        <span id="joinHintText">Starting peer-to-peer room…</span>
+      </div>
+    </section>
+
+    <section id="game" class="game hidden" aria-live="polite">
+      <div class="score-strip panel">
+        <div class="player" id="player0">
+          <span class="dot pink"></span>
+          <div><strong>Joey</strong><small>Host</small></div>
+        </div>
+        <div class="turn-chip" id="turnChip">JOEY'S TURN</div>
+        <div class="player right" id="player1">
+          <div><strong>Sabrina</strong><small>Guest</small></div>
+          <span class="dot blue"></span>
+        </div>
+      </div>
+
+      <section class="board-panel panel">
+        <div class="board-topline">
+          <span id="towerCount">0 cubes stacked</span>
+          <span id="wobbleReadout">Stable</span>
+        </div>
+        <div id="tower" class="tower" aria-label="Wonky cube tower">
+          <div id="ghost" class="cube ghost hidden" aria-hidden="true"></div>
+          <div class="floor"><span>DON'T KILL THE TOWER</span></div>
+        </div>
+      </section>
+
+      <section class="action-grid">
+        <div class="card-panel panel">
+          <div class="section-label">YOUR CARD</div>
+          <div id="cardFace" class="game-card card-back">
+            <div class="card-corner">W</div>
+            <div class="card-main">
+              <div class="mini-stack">
+                <i></i><i></i><i></i>
+              </div>
+              <strong>DRAW</strong>
+              <small>to find your cube</small>
+            </div>
+          </div>
+          <button id="drawCard" type="button" class="button yellow">Draw a card</button>
+        </div>
+
+        <div class="controls-panel panel">
+          <div class="section-label">CUBE RACK</div>
+          <div id="rack" class="rack" role="list" aria-label="Available cubes"></div>
+
+          <div id="placementControls" class="placement hidden">
+            <label for="positionRange">Slide it where you dare</label>
+            <input id="positionRange" type="range" min="12" max="88" value="50" step="1" />
+            <button id="dropCube" type="button" class="button hot">Drop cube</button>
+          </div>
+
+          <p id="actionHint" class="action-hint">Draw a card to start your turn.</p>
+        </div>
+      </section>
+
+      <section id="gameOver" class="panel game-over hidden">
+        <div class="boom">TOWER DOWN</div>
+        <h2 id="gameOverTitle">Well. That went badly.</h2>
+        <p id="gameOverText"></p>
+        <button id="restartGame" type="button" class="button yellow">Rematch</button>
+      </section>
+
+      <footer>
+        Fan-made browser game inspired by wobbly stacking party games. No app install, no account, room exists only while the host page is open.
+      </footer>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
