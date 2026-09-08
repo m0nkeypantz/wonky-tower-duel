@@ -175,22 +175,40 @@ class TowerWorld {
     for(const t of state.stack||[]){const c=cubeById(state,t.cubeId);if(!c)continue;const m=this.cubeMesh(c);m.position.fromArray(t.position||[0,c.h/2,0]);m.quaternion.fromArray(t.quaternion||[0,0,0,1]);this.scene.add(m);this.meshes.set(c.id,m)}
     this.frameCamera(state);
   }
-  frameCamera(state){
-    this.camera.fov=33;this.camera.updateProjectionMatrix();
-    let top=1.6;for(const t of state?.stack||[]){const c=cubeById(state,t.cubeId);if(c)top=Math.max(top,(t.position?.[1]||0)+c.h*.6)}
-    const targetY=Math.max(1.4,top*.48);const z=Math.max(7.2,6.8+top*.38);const y=Math.max(4.5,3.8+top*.36);this.camera.position.set(5.2,y,z);this.camera.lookAt(0,targetY,0);
+  towerBounds(state,extraCube=null){
+    let minY=0,maxY=.35,maxX=1.7,maxZ=1.45;
+    for(const t of state?.stack||[]){
+      const c=cubeById(state,t.cubeId);if(!c)continue;
+      const y=t.position?.[1]??c.h/2;
+      const x=Math.abs(t.position?.[0]||0),z=Math.abs(t.position?.[2]||0);
+      maxY=Math.max(maxY,y+c.h*.72);minY=Math.min(minY,y-c.h*.72);
+      maxX=Math.max(maxX,x+Math.max(c.w,c.d)*.72);
+      maxZ=Math.max(maxZ,z+Math.max(c.w,c.d)*.72);
+    }
+    if(extraCube){maxY=Math.max(maxY,this.topY(state)+Math.max(extraCube.w,extraCube.h,extraCube.d)*.9)}
+    return{minY,maxY,maxX,maxZ,height:Math.max(1.5,maxY-minY)};
   }
-  focusPlacement(state){
-    const top=this.topY(state);
-    const targetY=Math.max(.95,top+.18);
-    const stackN=state?.stack?.length||0;
-    // Placement camera: closer, slightly lower, and aimed at the top contact plane.
-    // As the tower grows we back off just enough to keep the top few blocks readable.
-    const dist=4.65+Math.min(1.0,stackN*.10);
-    this.camera.fov=29;this.camera.updateProjectionMatrix();
-    this.camera.position.set(3.05,targetY+1.85,dist);
-    this.camera.lookAt(0,targetY-.05,0);
+  setCameraForBounds(state,{placement=false,extraCube=null}={}){
+    const b=this.towerBounds(state,extraCube);
+    const aspect=Math.max(.55,this.camera.aspect||1);
+    const fov=placement?31:34;
+    this.camera.fov=fov;this.camera.updateProjectionMatrix();
+    const vfov=THREE.MathUtils.degToRad(fov);
+    const hfov=2*Math.atan(Math.tan(vfov/2)*aspect);
+    // Fit both height and width, with extra breathing room for shadows, wobble,
+    // and the block currently under the player's finger.
+    const targetY=(b.minY+b.maxY)/2+Math.min(.28,b.height*.04);
+    const needV=(b.height*.61)/Math.tan(vfov/2);
+    const needH=(b.maxX*1.12)/Math.tan(hfov/2);
+    const needZ=(b.maxZ*1.15)/Math.tan(hfov/2);
+    const distance=Math.max(5.4,needV,needH,needZ)+(placement?.45:.75);
+    const side=placement?Math.min(3.05,distance*.42):Math.min(4.6,distance*.48);
+    const rise=placement?Math.min(2.35,distance*.31):Math.min(3.4,distance*.34);
+    this.camera.position.set(side,targetY+rise,distance);
+    this.camera.lookAt(0,targetY,0);
   }
+  frameCamera(state){this.setCameraForBounds(state,{placement:false})}
+  focusPlacement(state){this.setCameraForBounds(state,{placement:true,extraCube:this.preview?.cube||null})}
   topY(state){let top=0;for(const t of state?.stack||[]){const c=cubeById(state,t.cubeId);if(c)top=Math.max(top,(t.position?.[1]||0)+c.h*.58)}return top}
   pointerToWorld(clientX,clientY,planeY){
     const r=this.canvas.getBoundingClientRect();
@@ -211,44 +229,60 @@ class TowerWorld {
     q.setFromEuler(new THREE.Euler(c.slantZ*.08+pitch,quarter*Math.PI/2+yawOffset,-c.slantX*.08,'XYZ'));
     return q;
   }
-  guideColor(state,c,pos,quarter){
-    const stack=state?.stack||[];
-    if(!stack.length)return 0x35e69a;
-    const top=stack[stack.length-1],support=cubeById(state,top.cubeId);
-    if(!support)return 0xffe61f;
-    const sx=top.position?.[0]||0,sz=top.position?.[2]||0;
-    const swapped=(Math.abs(quarter)%2)===1;
-    const supportW=support.w,supportD=support.d;
-    const cw=swapped?c.d:c.w,cd=swapped?c.w:c.d;
-    const safeX=Math.max(.15,(supportW+cw)*.22),safeZ=Math.max(.15,(supportD+cd)*.22);
-    const risk=Math.max(Math.abs(pos.x-sx)/safeX,Math.abs(pos.z-sz)/safeZ);
-    return risk<.55?0x35e69a:risk<1.05?0xffd83d:0xff4b67;
-  }
-  makeLandingGuide(c){
+  makeLandingFootprint(){
     const group=new THREE.Group();
-    const geom=this.cubeGeometry(c);
-    const outlineMat=new THREE.MeshBasicMaterial({color:0xffe61f,transparent:true,opacity:.95,depthTest:false,depthWrite:false,side:THREE.BackSide});
-    const outline=new THREE.Mesh(geom.clone(),outlineMat);outline.scale.setScalar(1.075);outline.renderOrder=47;group.add(outline);
-    const ghostMat=new THREE.MeshBasicMaterial({color:0xffe61f,transparent:true,opacity:.28,depthTest:false,depthWrite:false,side:THREE.DoubleSide});
-    const ghost=new THREE.Mesh(geom,ghostMat);ghost.renderOrder=48;group.add(ghost);
-    const edges=new THREE.EdgesGeometry(this.cubeGeometry(c),8);
-    const edgeMat=new THREE.LineBasicMaterial({color:0xffffff,transparent:true,opacity:1,depthTest:false,depthWrite:false});
-    const line=new THREE.LineSegments(edges,edgeMat);line.renderOrder=50;group.add(line);
-    group.userData.outline=outline;group.userData.ghost=ghost;group.userData.edges=line;
+    const fillGeom=new THREE.BufferGeometry();
+    fillGeom.setAttribute('position',new THREE.Float32BufferAttribute(new Array(18).fill(0),3));
+    const fillMat=new THREE.MeshBasicMaterial({color:0x15113f,transparent:true,opacity:.11,depthTest:false,depthWrite:false,side:THREE.DoubleSide});
+    const fill=new THREE.Mesh(fillGeom,fillMat);fill.renderOrder=47;group.add(fill);
+
+    const lineGeom=new THREE.BufferGeometry();
+    lineGeom.setAttribute('position',new THREE.Float32BufferAttribute(new Array(12).fill(0),3));
+    const lineMat=new THREE.LineBasicMaterial({color:0x15113f,transparent:true,opacity:.72,depthTest:false,depthWrite:false});
+    const line=new THREE.LineLoop(lineGeom,lineMat);line.renderOrder=49;group.add(line);
+    group.userData.fill=fill;group.userData.line=line;
     return group;
   }
-  makeLandingFootprint(c){
-    const radius=Math.max(.32,Math.max(c.w,c.d)*.34);
-    const mat=new THREE.MeshBasicMaterial({color:0xffe61f,transparent:true,opacity:.34,depthTest:false,depthWrite:false,side:THREE.DoubleSide});
-    const ring=new THREE.Mesh(new THREE.RingGeometry(radius*.72,radius,48),mat);
-    ring.rotation.x=-Math.PI/2;ring.renderOrder=47;return ring;
+  updateLandingFootprint(state,c,pos,q){
+    if(!this.landingFootprint)return;
+    const axes=[
+      {v:new THREE.Vector3(1,0,0).applyQuaternion(q),size:c.w},
+      {v:new THREE.Vector3(0,1,0).applyQuaternion(q),size:c.h},
+      {v:new THREE.Vector3(0,0,1).applyQuaternion(q),size:c.d}
+    ];
+    let vertical=0;
+    for(let i=1;i<3;i++)if(Math.abs(axes[i].v.y)>Math.abs(axes[vertical].v.y))vertical=i;
+    const faceAxes=axes.filter((_,i)=>i!==vertical);
+    const project=(a,fallback)=>{
+      const v=new THREE.Vector3(a.v.x,0,a.v.z);
+      if(v.lengthSq()<.0001)v.copy(fallback);
+      return v.normalize();
+    };
+    const u=project(faceAxes[0],new THREE.Vector3(1,0,0));
+    let v=project(faceAxes[1],new THREE.Vector3(0,0,1));
+    // Keep the two footprint directions perpendicular after projection. This
+    // makes the marker stable and readable even with the blocks' tiny wonky slants.
+    v=new THREE.Vector3(-u.z,0,u.x).multiplyScalar(Math.sign(v.dot(new THREE.Vector3(-u.z,0,u.x)))||1);
+    const hu=faceAxes[0].size*.47,hv=faceAxes[1].size*.47;
+    const center=new THREE.Vector3(pos.x,this.topY(state)+.035,pos.z);
+    const corners=[
+      center.clone().addScaledVector(u,-hu).addScaledVector(v,-hv),
+      center.clone().addScaledVector(u, hu).addScaledVector(v,-hv),
+      center.clone().addScaledVector(u, hu).addScaledVector(v, hv),
+      center.clone().addScaledVector(u,-hu).addScaledVector(v, hv)
+    ];
+    const lp=this.landingFootprint.userData.line.geometry.attributes.position;
+    corners.forEach((pt,i)=>lp.setXYZ(i,pt.x,pt.y,pt.z));lp.needsUpdate=true;
+    const fp=this.landingFootprint.userData.fill.geometry.attributes.position;
+    const tris=[corners[0],corners[1],corners[2],corners[0],corners[2],corners[3]];
+    tris.forEach((pt,i)=>fp.setXYZ(i,pt.x,pt.y,pt.z));fp.needsUpdate=true;
+    this.landingFootprint.visible=true;
   }
   beginPreview(c,state,clientX,clientY,quarter,yawOffset=0,pitch=0){
     this.cancelPreview();
     const m=this.cubeMesh(c,.74);m.material.emissive=new THREE.Color(COLORS[c.color]);m.material.emissiveIntensity=.15;
     this.scene.add(m);
-    this.landingGuide=this.makeLandingGuide(c);this.scene.add(this.landingGuide);
-    this.landingFootprint=this.makeLandingFootprint(c);this.scene.add(this.landingFootprint);
+    this.landingFootprint=this.makeLandingFootprint();this.scene.add(this.landingFootprint);
     this.preview={mesh:m,cube:c,quarter,yawOffset,pitch};
     this.movePreview(state,clientX,clientY,quarter,yawOffset,pitch);beep('drag');
   }
@@ -256,29 +290,14 @@ class TowerWorld {
     if(!this.preview)return;
     const c=this.preview.cube;
     this.preview.quarter=quarter;this.preview.yawOffset=yawOffset;this.preview.pitch=pitch;
+    this.setCameraForBounds(state,{placement:true,extraCube:c});
     const hoverY=this.topY(state)+c.h/2+.48;
     const pos=this.pointerToWorld(clientX,clientY,hoverY);
     if(!pos)return;
     const q=this.previewQuat(c,quarter,yawOffset,pitch);
     this.preview.mesh.position.copy(pos);
     this.preview.mesh.quaternion.copy(q);
-    if(this.landingGuide){
-      const landingY=this.topY(state)+c.h/2+.035;
-      const guideHex=this.guideColor(state,c,pos,quarter);
-      this.landingGuide.position.set(pos.x,landingY,pos.z);
-      this.landingGuide.quaternion.copy(q);
-      this.landingGuide.userData.outline.material.color.setHex(guideHex);
-      this.landingGuide.userData.outline.material.opacity=.95;
-      this.landingGuide.userData.ghost.material.color.setHex(guideHex);
-      this.landingGuide.userData.edges.material.color.setHex(guideHex);
-      this.landingGuide.userData.edges.material.opacity=1;
-      this.landingGuide.userData.ghost.material.opacity=.30;
-      if(this.landingFootprint){
-        this.landingFootprint.position.set(pos.x,this.topY(state)+.028,pos.z);
-        this.landingFootprint.material.color.setHex(guideHex);
-        this.landingFootprint.material.opacity=.42;
-      }
-    }
+    this.updateLandingFootprint(state,c,pos,q);
     this.previewDrop={x:pos.x,z:pos.z,quarter,yawOffset,pitch};
   }
   cancelPreview(){
@@ -288,7 +307,7 @@ class TowerWorld {
       this.landingGuide.traverse(o=>{if(o.geometry)o.geometry.dispose();if(o.material)o.material.dispose()});
       this.landingGuide=null;
     }
-    if(this.landingFootprint){this.scene.remove(this.landingFootprint);this.landingFootprint.geometry.dispose();this.landingFootprint.material.dispose();this.landingFootprint=null}
+    if(this.landingFootprint){this.scene.remove(this.landingFootprint);this.landingFootprint.traverse(o=>{if(o.geometry)o.geometry.dispose();if(o.material)o.material.dispose()});this.landingFootprint=null}
     this.previewDrop=null;
   }
   bodyFor(c,mass){const body=new CANNON.Body({mass,material:this.blockMat,allowSleep:true,sleepSpeedLimit:.08,sleepTimeLimit:.6});const shape=new CANNON.Box(new CANNON.Vec3(c.w*.47,c.h*.47,c.d*.47));body.addShape(shape,new CANNON.Vec3(c.biasX,0,c.biasZ));body.linearDamping=.12;body.angularDamping=.18;return body}
