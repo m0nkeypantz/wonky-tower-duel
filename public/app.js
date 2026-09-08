@@ -1,4 +1,4 @@
-﻿import * as THREE from 'three';
+import * as THREE from 'three';
 import * as CANNON from '/vendor/cannon/dist/cannon-es.js';
 import { RoundedBoxGeometry } from '/vendor/three/examples/jsm/geometries/RoundedBoxGeometry.js';
 
@@ -114,6 +114,7 @@ class TowerWorld {
     this.bodies=new Map();
     this.preview=null;
     this.landingGuide=null;
+    this.landingFootprint=null;
     this.previewDrop=null;
     this.simulating=false;
     this.simResolve=null;
@@ -178,6 +179,14 @@ class TowerWorld {
     let top=1.6;for(const t of state?.stack||[]){const c=cubeById(state,t.cubeId);if(c)top=Math.max(top,(t.position?.[1]||0)+c.h*.6)}
     const targetY=Math.max(1.4,top*.48);const z=Math.max(7.2,6.8+top*.38);const y=Math.max(4.5,3.8+top*.36);this.camera.position.set(5.2,y,z);this.camera.lookAt(0,targetY,0);
   }
+  focusPlacement(state){
+    const top=this.topY(state);
+    const targetY=Math.max(1.05,top+.28);
+    const stackN=state?.stack?.length||0;
+    const dist=Math.max(5.25,6.25-stackN*.08);
+    this.camera.position.set(3.65,targetY+2.45,dist);
+    this.camera.lookAt(0,targetY,0);
+  }
   topY(state){let top=0;for(const t of state?.stack||[]){const c=cubeById(state,t.cubeId);if(c)top=Math.max(top,(t.position?.[1]||0)+c.h*.58)}return top}
   pointerToWorld(clientX,clientY,planeY){
     const r=this.canvas.getBoundingClientRect();
@@ -212,16 +221,27 @@ class TowerWorld {
     return risk<.55?0x35e69a:risk<1.05?0xffd83d:0xff4b67;
   }
   makeLandingGuide(c){
-    const edges=new THREE.EdgesGeometry(this.cubeGeometry(c),20);
-    const mat=new THREE.LineBasicMaterial({color:0xffe61f,transparent:true,opacity:.92,depthTest:false});
-    const line=new THREE.LineSegments(edges,mat);line.renderOrder=50;
-    return line;
+    const group=new THREE.Group();
+    const ghostMat=new THREE.MeshBasicMaterial({color:0xffe61f,transparent:true,opacity:.20,depthTest:false,depthWrite:false,side:THREE.DoubleSide});
+    const ghost=new THREE.Mesh(this.cubeGeometry(c),ghostMat);ghost.renderOrder=48;group.add(ghost);
+    const edges=new THREE.EdgesGeometry(this.cubeGeometry(c),12);
+    const edgeMat=new THREE.LineBasicMaterial({color:0xffffff,transparent:true,opacity:1,depthTest:false,depthWrite:false});
+    const line=new THREE.LineSegments(edges,edgeMat);line.renderOrder=50;group.add(line);
+    group.userData.ghost=ghost;group.userData.edges=line;
+    return group;
+  }
+  makeLandingFootprint(c){
+    const radius=Math.max(.32,Math.max(c.w,c.d)*.34);
+    const mat=new THREE.MeshBasicMaterial({color:0xffe61f,transparent:true,opacity:.34,depthTest:false,depthWrite:false,side:THREE.DoubleSide});
+    const ring=new THREE.Mesh(new THREE.RingGeometry(radius*.72,radius,48),mat);
+    ring.rotation.x=-Math.PI/2;ring.renderOrder=47;return ring;
   }
   beginPreview(c,state,clientX,clientY,quarter,yawOffset=0,pitch=0){
     this.cancelPreview();
     const m=this.cubeMesh(c,.74);m.material.emissive=new THREE.Color(COLORS[c.color]);m.material.emissiveIntensity=.15;
     this.scene.add(m);
     this.landingGuide=this.makeLandingGuide(c);this.scene.add(this.landingGuide);
+    this.landingFootprint=this.makeLandingFootprint(c);this.scene.add(this.landingFootprint);
     this.preview={mesh:m,cube:c,quarter,yawOffset,pitch};
     this.movePreview(state,clientX,clientY,quarter,yawOffset,pitch);beep('drag');
   }
@@ -237,15 +257,29 @@ class TowerWorld {
     this.preview.mesh.quaternion.copy(q);
     if(this.landingGuide){
       const landingY=this.topY(state)+c.h/2+.035;
+      const guideHex=this.guideColor(state,c,pos,quarter);
       this.landingGuide.position.set(pos.x,landingY,pos.z);
       this.landingGuide.quaternion.copy(q);
-      this.landingGuide.material.color.setHex(this.guideColor(state,c,pos,quarter));
+      this.landingGuide.userData.ghost.material.color.setHex(guideHex);
+      this.landingGuide.userData.edges.material.color.setHex(guideHex);
+      this.landingGuide.userData.edges.material.opacity=1;
+      this.landingGuide.userData.ghost.material.opacity=.24;
+      if(this.landingFootprint){
+        this.landingFootprint.position.set(pos.x,this.topY(state)+.028,pos.z);
+        this.landingFootprint.material.color.setHex(guideHex);
+        this.landingFootprint.material.opacity=.42;
+      }
     }
     this.previewDrop={x:pos.x,z:pos.z,quarter,yawOffset,pitch};
   }
   cancelPreview(){
     if(this.preview){this.scene.remove(this.preview.mesh);this.preview.mesh.geometry.dispose();this.preview.mesh.material.dispose();this.preview=null}
-    if(this.landingGuide){this.scene.remove(this.landingGuide);this.landingGuide.geometry.dispose();this.landingGuide.material.dispose();this.landingGuide=null}
+    if(this.landingGuide){
+      this.scene.remove(this.landingGuide);
+      this.landingGuide.traverse(o=>{if(o.geometry)o.geometry.dispose();if(o.material)o.material.dispose()});
+      this.landingGuide=null;
+    }
+    if(this.landingFootprint){this.scene.remove(this.landingFootprint);this.landingFootprint.geometry.dispose();this.landingFootprint.material.dispose();this.landingFootprint=null}
     this.previewDrop=null;
   }
   bodyFor(c,mass){const body=new CANNON.Body({mass,material:this.blockMat,allowSleep:true,sleepSpeedLimit:.08,sleepTimeLimit:.6});const shape=new CANNON.Box(new CANNON.Vec3(c.w*.47,c.h*.47,c.d*.47));body.addShape(shape,new CANNON.Vec3(c.biasX,0,c.biasZ));body.linearDamping=.12;body.angularDamping=.18;return body}
@@ -461,7 +495,7 @@ function renderGame(first=false){
   const state=activeState();if(!state)return;showOnly('game');const myTurn=isMyTurn(state);el.modeLabel.textContent=mode==='solo'?'SOLO STACK':'VS DUEL';el.turnLabel.textContent=state.phase==='gameover'?'ROUND OVER':settling?'SETTLINGÃ¢â‚¬Â¦':myTurn?'YOUR TURN':`${state.players?.[state.turn]||'RIVAL'}'S TURN`;el.stackValue.textContent=`${state.stack.length} / 9`;el.towerMood.textContent=towerMood(state);renderConnection();
   if(mode==='solo'){const best=Number(localStorage.getItem('wonkyBestV3')||0);el.scoreTitle.textContent='SCORE';el.scoreValue.textContent=solo.score.toLocaleString();el.bestTitle.textContent='BEST';el.bestValue.textContent=best.toLocaleString();el.soloMeta.classList.remove('hidden');el.comboValue.textContent='x'+solo.combo;el.braveryValue.textContent=solo.bravery;el.soloBestMini.textContent=best.toLocaleString()}else{el.soloMeta.classList.add('hidden');el.scoreTitle.textContent='YOU';el.scoreValue.textContent=room?.players?.[myIndex]?.name||'You';el.bestTitle.textContent='RIVAL';el.bestValue.textContent=room?.players?.[1-myIndex]?.name||'Waiting'}
   if(state.phase==='choose_card')el.actionHint.textContent=myTurn?'Pick one of your four cards.':'Rival is choosing a card.';else if(state.phase==='placing')el.actionHint.textContent=myTurn?'Drag a matching block up here.':'Rival is placing a block.';else el.actionHint.textContent='Round complete.';
-  renderHand(state);renderDock(state);if(!settling)towerWorld.loadState(state);renderGameOver(state);renderEffects(state);if(first)setTimeout(()=>towerWorld.resize(),70);
+  renderHand(state);renderDock(state);if(!settling){towerWorld.loadState(state);if(myTurn&&state.phase==='placing')towerWorld.focusPlacement(state)}renderGameOver(state);renderEffects(state);if(first)setTimeout(()=>towerWorld.resize(),70);
 }
 function renderGameOver(state){const over=state.phase==='gameover';el.gameOverPanel.classList.toggle('hidden',!over);if(!over)return;if(mode==='solo'){const win=!!solo.completed&&!solo.collapsed;el.gameOverTitle.textContent=win?'NINE BLOCKS. ABSOLUTE NONSENSE.':'Physics collected its debt.';el.gameOverText.textContent=win?'You landed every block and kept the tower standing for the full count.':`${solo.stack.length} blocks made it before the tower resigned.`;el.finalScoreWrap.classList.remove('hidden');el.finalScore.textContent=solo.score.toLocaleString();el.rematchBtn.textContent='NEW SOLO RUN'}else{const won=state.winner===myIndex,winner=state.players?.[state.winner]||'Someone';el.gameOverTitle.textContent=won?'YOU WIN. TINY ARCHITECT SUPREMACY.':`${winner.toUpperCase()} WINS.`;el.gameOverText.textContent=state.message||'The tower made a decision.';el.finalScoreWrap.classList.add('hidden');el.rematchBtn.textContent='REMATCH'}}
 
