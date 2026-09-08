@@ -391,7 +391,7 @@ class TowerWorld {
     // doesn't cover the contact point. Use a larger offset on touch devices,
     // but keep mouse placement nearly one-to-one on desktop.
     const coarse=window.matchMedia?.('(pointer: coarse)')?.matches;
-    const fingerOffsetY=coarse?Math.max(42,Math.min(58,this.canvas.getBoundingClientRect().height*.075)):16;
+    const fingerOffsetY=coarse?Math.max(58,Math.min(74,this.canvas.getBoundingClientRect().height*.09)):16;
     const surfaceHit=this.pointerToSupport(state,clientX,clientY+fingerOffsetY);
     if(!surfaceHit)return;
     const q=this.previewQuat(c,quarter,yawOffset,pitch);
