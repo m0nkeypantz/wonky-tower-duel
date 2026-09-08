@@ -295,7 +295,7 @@ class TowerWorld {
     return ray.intersectPlane(plane,hit)?{...surface,hit,mesh}:null;
   }
   projectMarkerPoint(surface,point){
-    if(!surface.mesh)return point.clone().addScaledVector(surface.normal,.018);
+    if(!surface.mesh)return point.clone().addScaledVector(surface.normal,.032);
     const normal=surface.normal.clone().normalize();
     const origin=point.clone().addScaledVector(normal,1.5);
     const rc=new THREE.Raycaster(origin,normal.clone().multiplyScalar(-1),.001,3.5);
@@ -305,9 +305,9 @@ class TowerWorld {
     for(const h of hits){
       if(!h.face)continue;
       const n=h.face.normal.clone().applyMatrix3(normalMatrix).normalize();
-      if(n.dot(normal)>.30)return h.point.clone().addScaledVector(n,.018);
+      if(n.dot(normal)>.30)return h.point.clone().addScaledVector(n,.032);
     }
-    return hits[0].point.clone().addScaledVector(normal,.018);
+    return hits[0].point.clone().addScaledVector(normal,.032);
   }
   blockExtentAlongNormal(c,q,normal){
     const axes=[
@@ -323,16 +323,16 @@ class TowerWorld {
     return q;
   }
   makeLandingFootprint(){
-    const group=new THREE.Group();
+    const group=new THREE.Group();group.frustumCulled=false;
     const fillGeom=new THREE.BufferGeometry();
     fillGeom.setAttribute('position',new THREE.Float32BufferAttribute(new Array(18).fill(0),3));
-    const fillMat=new THREE.MeshBasicMaterial({color:0x15113f,transparent:true,opacity:.075,depthTest:false,depthWrite:false,side:THREE.DoubleSide});
-    const fill=new THREE.Mesh(fillGeom,fillMat);fill.renderOrder=47;group.add(fill);
+    const fillMat=new THREE.MeshBasicMaterial({color:0x15113f,transparent:true,opacity:.13,depthTest:false,depthWrite:false,side:THREE.DoubleSide});
+    const fill=new THREE.Mesh(fillGeom,fillMat);fill.renderOrder=47;fill.frustumCulled=false;group.add(fill);
 
     const lineGeom=new THREE.BufferGeometry();
     lineGeom.setAttribute('position',new THREE.Float32BufferAttribute(new Array(12).fill(0),3));
-    const lineMat=new THREE.LineBasicMaterial({color:0x15113f,transparent:true,opacity:.88,depthTest:false,depthWrite:false});
-    const line=new THREE.LineLoop(lineGeom,lineMat);line.renderOrder=49;group.add(line);
+    const lineMat=new THREE.LineBasicMaterial({color:0x15113f,transparent:true,opacity:1,depthTest:false,depthWrite:false});
+    const line=new THREE.LineLoop(lineGeom,lineMat);line.renderOrder=49;line.frustumCulled=false;group.add(line);
     group.userData.fill=fill;group.userData.line=line;
     return group;
   }
@@ -370,10 +370,10 @@ class TowerWorld {
     // the support face is rotated/slanted/curved, the outline follows it.
     const corners=rawCorners.map(pt=>this.projectMarkerPoint(surface,pt));
     const lp=this.landingFootprint.userData.line.geometry.attributes.position;
-    corners.forEach((pt,i)=>lp.setXYZ(i,pt.x,pt.y,pt.z));lp.needsUpdate=true;
+    corners.forEach((pt,i)=>lp.setXYZ(i,pt.x,pt.y,pt.z));lp.needsUpdate=true;this.landingFootprint.userData.line.geometry.computeBoundingSphere();
     const fp=this.landingFootprint.userData.fill.geometry.attributes.position;
     const tris=[corners[0],corners[1],corners[2],corners[0],corners[2],corners[3]];
-    tris.forEach((pt,i)=>fp.setXYZ(i,pt.x,pt.y,pt.z));fp.needsUpdate=true;
+    tris.forEach((pt,i)=>fp.setXYZ(i,pt.x,pt.y,pt.z));fp.needsUpdate=true;this.landingFootprint.userData.fill.geometry.computeBoundingSphere();
     this.landingFootprint.visible=true;
   }
   beginPreview(c,state,clientX,clientY,quarter,yawOffset=0,pitch=0){
