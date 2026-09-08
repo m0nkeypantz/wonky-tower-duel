@@ -387,7 +387,12 @@ class TowerWorld {
     const c=this.preview.cube;
     this.preview.quarter=quarter;this.preview.yawOffset=yawOffset;this.preview.pitch=pitch;
     this.setCameraForBounds(state,{placement:true,extraCube:c});
-    const surfaceHit=this.pointerToSupport(state,clientX,clientY);
+    // Keep the held cube slightly below the fingertip so the player's hand
+    // doesn't cover the contact point. Use a larger offset on touch devices,
+    // but keep mouse placement nearly one-to-one on desktop.
+    const coarse=window.matchMedia?.('(pointer: coarse)')?.matches;
+    const fingerOffsetY=coarse?Math.max(42,Math.min(58,this.canvas.getBoundingClientRect().height*.075)):16;
+    const surfaceHit=this.pointerToSupport(state,clientX,clientY+fingerOffsetY);
     if(!surfaceHit)return;
     const q=this.previewQuat(c,quarter,yawOffset,pitch);
     const extent=this.blockExtentAlongNormal(c,q,surfaceHit.normal);
