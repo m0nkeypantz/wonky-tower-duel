@@ -393,9 +393,15 @@ class TowerWorld {
     const normal=new THREE.Vector3(...(drop.normal||[0,1,0])).normalize();
     const contact=new THREE.Vector3(Number(drop.x)||0,Number(drop.y)||this.topY(state),Number(drop.z)||0);
     const extent=this.blockExtentAlongNormal(cube,tq,normal);
-    const start=contact.clone().addScaledVector(normal,extent+.58);
+    // Release almost exactly at the previewed contact pose. The old version
+    // spawned the block over half a unit away along the support normal, which
+    // created a sideways offset on tall/tilted towers before gravity took over.
+    // That made the shadow accurate but the actual landing miss it.
+    const start=contact.clone().addScaledVector(normal,extent+.075);
     const transform={position:[start.x,start.y,start.z],quaternion:[tq.x,tq.y,tq.z,tq.w]};
-    const body=this.addDynamic(cube,transform);body.velocity.set(0,-.22,0);body.angularVelocity.set((cube.slantZ||0)*.05,0,(cube.slantX||0)*-.05);order.push(cube.id);
+    const body=this.addDynamic(cube,transform);
+    body.velocity.set(-normal.x*.035,-Math.max(.045,normal.y*.055),-normal.z*.035);
+    body.angularVelocity.set((cube.slantZ||0)*.018,0,(cube.slantX||0)*-.018);order.push(cube.id);
     this.simulating=true;this.simOrder=order;this.simCubes=state.cubes;this.simEnd=performance.now()+3050;this.lastCount=null;this.onCount=onCount;this.frameCamera({...state,stack:[...(state.stack||[]),transform]});
     return new Promise(resolve=>{this.simResolve=resolve});
   }
