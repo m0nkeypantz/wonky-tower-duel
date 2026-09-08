@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#15113f" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>Wonky Tower</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="bg-orb orb-a"></div><div class="bg-orb orb-b"></div><div class="bg-orb orb-c"></div>
+  <main id="app" class="app-shell">
+    <header class="topbar">
+      <button id="homeBtn" class="icon-btn hidden" type="button" aria-label="Back to home">←</button>
+      <div class="brand-lockup">
+        <span class="mini-label">THE UNSTABLE STACKING GAME</span>
+        <div class="brand">WONKY <b>TOWER</b></div>
+      </div>
+      <button id="soundBtn" class="icon-btn" type="button" aria-label="Toggle sound">♪</button>
+    </header>
+
+    <section id="homeScreen" class="screen home-screen">
+      <div class="hero-copy">
+        <div class="pill">NEW · SOLO + VS</div>
+        <h1>Build it tall.<br><span>Try not to ruin everything.</span></h1>
+        <p>Pull a card, match a weird cube, and balance your increasingly questionable architecture.</p>
+      </div>
+
+      <div class="hero-stage" aria-hidden="true">
+        <div class="hero-shadow"></div>
+        <div class="hero-cube c1"><i></i><i></i><i></i></div>
+        <div class="hero-cube c2"><i></i><i></i><i></i></div>
+        <div class="hero-cube c3"><i></i><i></i><i></i></div>
+        <div class="hero-cube c4"><i></i><i></i><i></i></div>
+        <div class="hero-card"><span>W</span><strong>ANY<br>COLOR</strong><small>ANY SHAPE</small></div>
+      </div>
+
+      <div class="mode-grid">
+        <button id="soloModeBtn" class="mode-card solo-mode" type="button">
+          <span class="mode-icon">★</span>
+          <span class="mode-copy"><strong>SOLO STACK</strong><small>Chase a high score and survive the tower.</small></span>
+          <span class="chev">›</span>
+        </button>
+        <button id="vsModeBtn" class="mode-card vs-mode" type="button">
+          <span class="mode-icon">⚡</span>
+          <span class="mode-copy"><strong>VS DUEL</strong><small>Make a room and send the invite link.</small></span>
+          <span class="chev">›</span>
+        </button>
+      </div>
+      <div class="home-footer">No login. No install. Just tiny colorful structural negligence.</div>
+    </section>
+
+    <section id="vsLobby" class="screen hidden">
+      <div class="lobby-card glass-panel">
+        <div class="section-kicker">VS DUEL</div>
+        <h2 id="lobbyTitle">Create a room</h2>
+        <p id="lobbyText">Your room stays alive through refreshes and brief disconnects now. Civilization advances.</p>
+        <label class="field-label" for="playerName">Your name</label>
+        <input id="playerName" class="name-input" maxlength="24" value="Joey" />
+        <button id="createRoomBtn" class="primary-btn hot" type="button">Create room</button>
+
+        <div id="inviteBox" class="invite-box hidden">
+          <div class="invite-status"><span class="pulse-dot"></span><span id="inviteStatus">Waiting for Sabrina…</span></div>
+          <label class="field-label" for="inviteLink">Invite link</label>
+          <div class="invite-row"><input id="inviteLink" readonly /><button id="copyInviteBtn" type="button">Copy</button></div>
+          <button id="shareInviteBtn" class="primary-btn blue" type="button">Send invite</button>
+        </div>
+        <div id="lobbyError" class="error-text hidden"></div>
+      </div>
+    </section>
+
+    <section id="gameScreen" class="screen hidden">
+      <div class="game-head">
+        <div>
+          <div id="modeLabel" class="section-kicker">SOLO STACK</div>
+          <div id="turnLabel" class="turn-label">YOUR TURN</div>
+        </div>
+        <div id="connectionBadge" class="connection-badge hidden"><span></span>CONNECTED</div>
+      </div>
+
+      <div class="hud-row">
+        <div class="hud-tile"><small id="scoreTitle">SCORE</small><strong id="scoreValue">0</strong></div>
+        <div class="hud-tile center"><small>STACK</small><strong id="stackValue">0</strong></div>
+        <div class="hud-tile"><small id="bestTitle">BEST</small><strong id="bestValue">0</strong></div>
+      </div>
+
+      <section class="tower-card glass-panel">
+        <div class="tower-topline"><span id="towerMood">Steady-ish</span><span id="dangerText">Danger 0%</span></div>
+        <div id="towerStage" class="tower-stage" aria-label="Wonky cube tower">
+          <div class="back-grid"></div>
+          <div id="towerStack" class="tower-stack"></div>
+          <div id="ghostCube" class="cube3d ghost hidden"><div class="face front"></div><div class="face top"></div><div class="face side"></div></div>
+          <div class="platform"><span>DO NOT PANIC</span></div>
+          <div id="impactBurst" class="impact-burst"></div>
+        </div>
+      </section>
+
+      <section class="play-panel glass-panel">
+        <div class="card-zone">
+          <div class="deck-stack" aria-hidden="true"><i></i><i></i><i></i></div>
+          <div id="drawCardVisual" class="draw-card">
+            <div class="card-inner">
+              <div class="card-face card-back"><span class="card-w">W</span><div class="back-lines"></div></div>
+              <div class="card-face card-front">
+                <div class="card-top"><span>W</span><small id="cardTiny">STACK IT</small></div>
+                <div id="cardColorBlock" class="card-color-block any"></div>
+                <strong id="cardColorText">DRAW</strong>
+                <div id="cardShapeText" class="card-rule">TO REVEAL</div>
+              </div>
+            </div>
+          </div>
+          <button id="drawBtn" class="primary-btn yellow" type="button">Pull a card</button>
+        </div>
+
+        <div class="cube-zone">
+          <div class="section-kicker">CUBE RACK</div>
+          <div id="cubeRack" class="cube-rack"></div>
+          <div id="placementControls" class="placement-controls hidden">
+            <div class="placement-copy"><span>Slide it where you dare</span><b id="placementPercent">50%</b></div>
+            <input id="positionSlider" type="range" min="12" max="88" value="50" step="1" />
+            <button id="dropBtn" class="primary-btn hot" type="button" disabled>DROP CUBE</button>
+          </div>
+          <p id="actionHint" class="action-hint">Pull a card to begin.</p>
+        </div>
+      </section>
+
+      <section id="soloMeta" class="solo-meta glass-panel">
+        <div><small>COMBO</small><strong id="comboValue">x1</strong></div>
+        <div class="progress-wrap"><span id="runProgressLabel">0 / 18</span><div class="progress-track"><i id="runProgress"></i></div></div>
+        <div><small>BRAVERY</small><strong id="braveryValue">0</strong></div>
+      </section>
+
+      <section id="gameOverPanel" class="game-over glass-panel hidden">
+        <div class="boom-label">TOWER REPORT</div>
+        <h2 id="gameOverTitle">That was structurally ambitious.</h2>
+        <p id="gameOverText"></p>
+        <div id="finalScoreWrap" class="final-score"><small>FINAL SCORE</small><strong id="finalScore">0</strong></div>
+        <button id="rematchBtn" class="primary-btn yellow" type="button">PLAY AGAIN</button>
+      </section>
+    </section>
+
+    <div id="toast" class="toast hidden" aria-live="polite"></div>
+  </main>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

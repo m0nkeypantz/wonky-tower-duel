@@ -1,12 +1,26 @@
-# Wonky Tower
+# Wonky Tower v2
 
-A tiny two-player mobile browser stacking game inspired by wobbly cube party games.
+Mobile-first browser stacking game with two modes:
 
-## How it works
-- Open the GitHub Pages URL. The first browser becomes the host.
-- Tap **Invite Sabrina** and send the generated room URL.
-- The guest opens that URL and connects directly through PeerJS/WebRTC.
-- Players alternate drawing a card and placing a matching cube.
-- The tower uses a deterministic center-of-mass stability check. Whoever knocks it down loses.
+- **Solo Stack**: score attack, combo/bravery bonuses, persistent solo run and best score.
+- **VS Duel**: server-authoritative two-player rooms with invite links and reconnect-safe state.
 
-No database, login, or persistent room is required. The host page must remain open during the match.
+## Stack
+- Node.js + Express
+- Socket.IO multiplayer
+- Vanilla HTML/CSS/JS
+- CSS 3D cubes, card flip/pull animations, confetti, synthesized sound, optional haptics
+
+## Room persistence
+Rooms and their current game state live on the server for up to two hours after everyone disconnects. Host and guest player IDs are stored locally so refreshing or briefly leaving the page reconnects to the same seat and state.
+
+## Run
+```bash
+npm install
+npm start
+```
+Default port: 3000.
+
+## Production
+Deployed through Joey's Ella VPS webapp platform at:
+https://wonky-tower.74.208.245.9.nip.io
