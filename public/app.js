@@ -110,6 +110,11 @@ class TowerWorld {
     this.camera=new THREE.PerspectiveCamera(33,1,.1,100);
     this.camera.position.set(5.5,5.3,8.2);
     this.camera.lookAt(0,2.1,0);
+    this.cameraOrbitYaw=.50;
+    this.cameraOrbitPitch=.24;
+    this.cameraZoom=1;
+    this.cameraTargetY=2.1;
+    this.cameraBaseDistance=8;
     this.meshes=new Map();
     this.bodies=new Map();
     this.preview=null;
@@ -202,10 +207,30 @@ class TowerWorld {
     const needH=(b.maxX*1.12)/Math.tan(hfov/2);
     const needZ=(b.maxZ*1.15)/Math.tan(hfov/2);
     const distance=Math.max(5.4,needV,needH,needZ)+(placement?.45:.75);
-    const side=placement?Math.min(3.05,distance*.42):Math.min(4.6,distance*.48);
-    const rise=placement?Math.min(2.35,distance*.31):Math.min(3.4,distance*.34);
-    this.camera.position.set(side,targetY+rise,distance);
-    this.camera.lookAt(0,targetY,0);
+    this.cameraTargetY=targetY;
+    this.cameraBaseDistance=distance;
+    this.applyCameraPose();
+  }
+  applyCameraPose(){
+    const distance=Math.max(3.1,Math.min(22,this.cameraBaseDistance*this.cameraZoom));
+    const pitch=Math.max(-.05,Math.min(1.12,this.cameraOrbitPitch));
+    const yaw=this.cameraOrbitYaw;
+    const horiz=Math.cos(pitch)*distance;
+    const target=new THREE.Vector3(0,this.cameraTargetY,0);
+    this.camera.position.set(Math.sin(yaw)*horiz,target.y+Math.sin(pitch)*distance,Math.cos(yaw)*horiz);
+    this.camera.lookAt(target);
+  }
+  orbitCamera(dx,dy){
+    this.cameraOrbitYaw-=dx*.009;
+    this.cameraOrbitPitch=Math.max(-.02,Math.min(1.05,this.cameraOrbitPitch+dy*.007));
+    this.applyCameraPose();
+  }
+  zoomCamera(mult){
+    this.cameraZoom=Math.max(.52,Math.min(2.15,this.cameraZoom*mult));
+    this.applyCameraPose();
+  }
+  resetCameraView(){
+    this.cameraOrbitYaw=.50;this.cameraOrbitPitch=.24;this.cameraZoom=1;this.applyCameraPose();
   }
   frameCamera(state){this.setCameraForBounds(state,{placement:false})}
   focusPlacement(state){this.setCameraForBounds(state,{placement:true,extraCube:this.preview?.cube||null})}
@@ -452,6 +477,43 @@ class TowerWorld {
   }
 }
 
+let cameraPointers=new Map();
+let cameraGesture=null;
+function cameraPointerDown(ev){
+  if(dragging||settling)return;
+  ev.preventDefault();
+  cameraPointers.set(ev.pointerId,{x:ev.clientX,y:ev.clientY});
+  try{el.towerCanvas.setPointerCapture(ev.pointerId)}catch{}
+  if(cameraPointers.size===1){
+    cameraGesture={mode:'orbit',id:ev.pointerId,lastX:ev.clientX,lastY:ev.clientY};
+  }else if(cameraPointers.size===2){
+    const pts=[...cameraPointers.values()];
+    cameraGesture={mode:'pinch',distance:Math.hypot(pts[1].x-pts[0].x,pts[1].y-pts[0].y)};
+  }
+}
+function cameraPointerMove(ev){
+  if(!cameraPointers.has(ev.pointerId)||dragging)return;
+  ev.preventDefault();
+  const prev=cameraPointers.get(ev.pointerId);cameraPointers.set(ev.pointerId,{x:ev.clientX,y:ev.clientY});
+  if(cameraPointers.size>=2){
+    const pts=[...cameraPointers.values()].slice(0,2);
+    const dist=Math.max(12,Math.hypot(pts[1].x-pts[0].x,pts[1].y-pts[0].y));
+    if(cameraGesture?.mode==='pinch'&&cameraGesture.distance){towerWorld.zoomCamera(cameraGesture.distance/dist)}
+    cameraGesture={mode:'pinch',distance:dist};
+  }else if(cameraGesture?.mode==='orbit'){
+    towerWorld.orbitCamera(ev.clientX-prev.x,ev.clientY-prev.y);
+    cameraGesture.lastX=ev.clientX;cameraGesture.lastY=ev.clientY;
+  }
+}
+function cameraPointerUp(ev){
+  if(!cameraPointers.has(ev.pointerId))return;
+  cameraPointers.delete(ev.pointerId);
+  if(cameraPointers.size===1){
+    const [id,p]=[...cameraPointers.entries()][0];cameraGesture={mode:'orbit',id,lastX:p.x,lastY:p.y};
+  }else if(cameraPointers.size===0){cameraGesture=null}
+}
+function cameraWheel(ev){if(dragging||settling)return;ev.preventDefault();towerWorld.zoomCamera(Math.exp(ev.deltaY*.0012))}
+function cameraDoubleTap(){if(dragging||settling)return;towerWorld.resetCameraView();toast('Camera reset')}
 const towerWorld=new TowerWorld(el.towerCanvas);
 
 function activeState(){return mode==='solo'?solo:room?.state||null}
@@ -665,9 +727,12 @@ el.rematchBtn.addEventListener('click',()=>{settling=false;rotationQuarter=0;rot
 window.addEventListener('pointerdown',beginSecondaryRotate,{passive:false});
 window.addEventListener('pointerup',endSecondaryRotate,{passive:true});
 window.addEventListener('pointercancel',endSecondaryRotate,{passive:true});
+el.towerCanvas.addEventListener('pointerdown',cameraPointerDown,{passive:false});
+window.addEventListener('pointermove',cameraPointerMove,{passive:false});
+window.addEventListener('pointerup',cameraPointerUp,{passive:true});
+window.addEventListener('pointercancel',cameraPointerUp,{passive:true});
+el.towerCanvas.addEventListener('wheel',cameraWheel,{passive:false});
+el.towerCanvas.addEventListener('dblclick',cameraDoubleTap,{passive:true});
 window.addEventListener('resize',()=>towerWorld.resize());
 
 (function boot(){const q=new URLSearchParams(location.search);if(q.get('room')){mode='vs';showOnly('lobby');joinRoomFromUrl()}else if(q.get('solo')==='1'&&loadSolo()){startSolo(true)}else showOnly('home')})();
-
-
-
