@@ -399,9 +399,16 @@ function moveBlockDrag(ev){
     towerWorld.movePreview(activeState(),ev.clientX,ev.clientY,rotationQuarter,rotationYawOffset,rotationPitch);return;
   }
   if(secondaryRotate&&ev.pointerId===secondaryRotate.pointerId){
-    ev.preventDefault();const dx=ev.clientX-secondaryRotate.startX,dy=ev.clientY-secondaryRotate.startY;
-    rotationYawOffset=secondaryRotate.baseYaw+dx*.012;
-    rotationPitch=Math.max(-1.2,Math.min(1.2,secondaryRotate.basePitch-dy*.012));
+    ev.preventDefault();
+    const dx=ev.clientX-secondaryRotate.startX,dy=ev.clientY-secondaryRotate.startY;
+    const STEP=46;
+    const yawSteps=Math.trunc(dx/STEP);
+    const pitchSteps=Math.trunc(-dy/STEP);
+    const nextYaw=secondaryRotate.baseYaw+yawSteps*(Math.PI/2);
+    const nextPitch=secondaryRotate.basePitch+pitchSteps*(Math.PI/2);
+    if(nextYaw!==rotationYawOffset||nextPitch!==rotationPitch){
+      rotationYawOffset=nextYaw;rotationPitch=nextPitch;haptic(10);beep('tap');
+    }
     towerWorld.movePreview(activeState(),dragging.lastX,dragging.lastY,rotationQuarter,rotationYawOffset,rotationPitch);
   }
 }
@@ -473,5 +480,6 @@ window.addEventListener('pointercancel',endSecondaryRotate,{passive:true});
 window.addEventListener('resize',()=>towerWorld.resize());
 
 (function boot(){const q=new URLSearchParams(location.search);if(q.get('room')){mode='vs';showOnly('lobby');joinRoomFromUrl()}else if(q.get('solo')==='1'&&loadSolo()){startSolo(true)}else showOnly('home')})();
+
 
 
