@@ -430,16 +430,38 @@ function cardMeta(c){
   return{title,sub,kind:'stack',icon:''};
 }
 
+function cardVisual(c,m){
+  const exact=c.type==='stack'&&c.color!=='any'&&c.size!=='any';
+  let theme='rainbow',eyebrow=m.title,tag='',footer=m.sub,art='blocks';
+  if(exact){theme=c.color;eyebrow=c.color.toUpperCase();tag=c.size.toUpperCase();footer=`STACK A ${c.color.toUpperCase()} ${c.size.toUpperCase()} BLOCK`;art='single'}
+  else if(c.type==='stack'&&c.color!=='any'){theme=c.color;eyebrow=c.color.toUpperCase();tag='ANY SIZE';footer=`STACK ANY ${c.color.toUpperCase()} BLOCK`;art='sizes'}
+  else if(c.type==='stack'&&c.size!=='any'){theme='rainbow';eyebrow='ANY COLOR';tag=c.size.toUpperCase();footer=`STACK ANY ${c.size.toUpperCase()} BLOCK`;art='trio'}
+  else if(c.type==='wild'){theme='rainbow';eyebrow='ANY BLOCK';footer='STACK ANY COLOR, ANY SIZE!';art='trio'}
+  else if(c.type==='pass'){theme='pass';eyebrow='PASS';footer='PASS YOUR TURN';art='pass'}
+  else if(c.type==='skip'){theme='skip';eyebrow='SKIP';footer='SKIP THE NEXT PLAYER';art='skip'}
+  else if(c.type==='combo_disrupt'){theme='scramble';eyebrow='SCRAMBLE';footer='MIX UP THE TOWER!';art='scramble'}
+  else if(c.type==='combo_skip'){theme='power';eyebrow='POWER PLAY';footer='TAKE AN EXTRA TURN!';art='power'}
+  const colorBlock=theme==='pink'?'pink':theme==='blue'?'blue':theme==='yellow'?'yellow':'pink';
+  let artwork='';
+  if(art==='single') artwork=`<span class="art-block ${colorBlock} single"></span>`;
+  else if(art==='sizes') artwork=`<span class="art-block ${colorBlock} a-small"></span><span class="art-block ${colorBlock} a-medium"></span><span class="art-block ${colorBlock} a-large"></span>`;
+  else if(art==='trio') artwork='<span class="art-block blue trio-a"></span><span class="art-block pink trio-b"></span><span class="art-block yellow trio-c"></span>';
+  else if(art==='pass') artwork='<span class="card-glyph sleepy">Zzz</span><span class="art-block blue mascot"></span>';
+  else if(art==='skip') artwork='<span class="card-glyph arrows">&#187;</span><span class="art-block pink mascot dash"></span>';
+  else if(art==='scramble') artwork='<span class="card-glyph swirl">&#8635;</span><span class="art-block blue trio-a"></span><span class="art-block pink trio-b"></span><span class="art-block yellow trio-c"></span>';
+  else if(art==='power') artwork='<span class="card-glyph crown">&#9813;</span><span class="art-block blue power-top"></span><span class="art-block pink power-left"></span><span class="art-block yellow power-right"></span>';
+  return{theme,html:`<span class="card-face"><span class="card-top"><b>${eyebrow}</b>${tag?`<em>${tag}</em>`:''}</span><span class="card-art">${artwork}</span><span class="card-footer">${footer}</span></span>`};
+}
+
 function renderHand(state){
   const hand=activeHand();el.cardHand.innerHTML='';el.handCount.textContent=`${hand.length} CARDS`;
   const canChoose=isMyTurn(state)&&state.phase==='choose_card'&&!settling;
   hand.forEach((c,i)=>{
-    const m=cardMeta(c),playable=cardPlayable(state,c),b=document.createElement('button');
-    b.type='button';b.className=`hand-card ${m.kind}${canChoose&&playable?' playable':''}${(!canChoose||!playable)?' disabled':''}`;b.style.setProperty('--card-tilt',`${[-2,1,-1,2][i]||0}deg`);
-    const chipColor=c.type==='stack'?(c.color==='any'?'linear-gradient(135deg,#f50073 0 33%,#ffe61f 33% 66%,#28a9e8 66%)':CSS_COLORS[c.color]):'linear-gradient(135deg,#f50073,#6545ff)';
-    b.style.setProperty('--chip',chipColor);b.disabled=!canChoose||!playable;
+    const m=cardMeta(c),v=cardVisual(c,m),playable=cardPlayable(state,c),b=document.createElement('button');
+    b.type='button';b.className=`hand-card art-${v.theme} ${m.kind}${canChoose&&playable?' playable':''}${(!canChoose||!playable)?' disabled':''}`;b.style.setProperty('--card-tilt',`${[-2,1,-1,2][i]||0}deg`);
+    b.disabled=!canChoose||!playable;
     b.dataset.cardIndex=String(i);b._wonkyCard=c;
-    b.innerHTML=`<span class="card-chip">${m.kind==='action'?m.icon:''}</span><span class="card-title">${m.title}</span><span class="card-sub">${m.sub}</span>`;
+    b.innerHTML=v.html;
     if(canChoose&&playable)b.addEventListener('pointerdown',ev=>startCardGesture(ev,b,c));
     b.addEventListener('click',ev=>{if(ev.detail===0&&Date.now()>suppressCardClickUntil)playCard(c)});
     el.cardHand.appendChild(b);
