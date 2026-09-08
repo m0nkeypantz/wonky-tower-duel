@@ -25,7 +25,12 @@ let myIndex = null;
 let solo = null;
 let settling = false;
 let dragging = null;
+let secondaryRotate = null;
 let rotationQuarter = 0;
+let rotationYawOffset = 0;
+let rotationPitch = 0;
+let cardGesture = null;
+let suppressCardClickUntil = 0;
 let toastTimer = null;
 let effectTimer = null;
 let lastEffectKey = '';
@@ -38,7 +43,7 @@ if (!playerId) {
 }
 const socket = io({reconnection:true,reconnectionDelay:400,reconnectionDelayMax:2200});
 
-function setSoundIcon(){ el.soundBtn.textContent=soundOn?'â™ª':'Ã—'; }
+function setSoundIcon(){ el.soundBtn.textContent=soundOn?'Ã¢â„¢Âª':'Ãƒâ€”'; }
 setSoundIcon();
 function beep(kind='tap') {
   if (!soundOn) return;
@@ -108,6 +113,7 @@ class TowerWorld {
     this.meshes=new Map();
     this.bodies=new Map();
     this.preview=null;
+    this.landingGuide=null;
     this.previewDrop=null;
     this.simulating=false;
     this.simResolve=null;
@@ -187,23 +193,61 @@ class TowerWorld {
     const hit=new THREE.Vector3();
     return raycaster.ray.intersectPlane(plane,hit)?hit:null;
   }
-  previewQuat(c,quarter){const q=new THREE.Quaternion();q.setFromEuler(new THREE.Euler(c.slantZ*.08,quarter*Math.PI/2,-c.slantX*.08,'XYZ'));return q}
-  beginPreview(c,state,clientX,clientY,quarter){this.cancelPreview();const m=this.cubeMesh(c,.74);m.material.emissive=new THREE.Color(COLORS[c.color]);m.material.emissiveIntensity=.15;this.scene.add(m);this.preview={mesh:m,cube:c,quarter};this.movePreview(state,clientX,clientY,quarter);beep('drag')}
-  movePreview(state,clientX,clientY,quarter=this.preview?.quarter||0){
+  previewQuat(c,quarter,yawOffset=0,pitch=0){
+    const q=new THREE.Quaternion();
+    q.setFromEuler(new THREE.Euler(c.slantZ*.08+pitch,quarter*Math.PI/2+yawOffset,-c.slantX*.08,'XYZ'));
+    return q;
+  }
+  guideColor(state,c,pos,quarter){
+    const stack=state?.stack||[];
+    if(!stack.length)return 0x35e69a;
+    const top=stack[stack.length-1],support=cubeById(state,top.cubeId);
+    if(!support)return 0xffe61f;
+    const sx=top.position?.[0]||0,sz=top.position?.[2]||0;
+    const swapped=(Math.abs(quarter)%2)===1;
+    const supportW=support.w,supportD=support.d;
+    const cw=swapped?c.d:c.w,cd=swapped?c.w:c.d;
+    const safeX=Math.max(.15,(supportW+cw)*.22),safeZ=Math.max(.15,(supportD+cd)*.22);
+    const risk=Math.max(Math.abs(pos.x-sx)/safeX,Math.abs(pos.z-sz)/safeZ);
+    return risk<.55?0x35e69a:risk<1.05?0xffd83d:0xff4b67;
+  }
+  makeLandingGuide(c){
+    const edges=new THREE.EdgesGeometry(this.cubeGeometry(c),20);
+    const mat=new THREE.LineBasicMaterial({color:0xffe61f,transparent:true,opacity:.92,depthTest:false});
+    const line=new THREE.LineSegments(edges,mat);line.renderOrder=50;
+    return line;
+  }
+  beginPreview(c,state,clientX,clientY,quarter,yawOffset=0,pitch=0){
+    this.cancelPreview();
+    const m=this.cubeMesh(c,.74);m.material.emissive=new THREE.Color(COLORS[c.color]);m.material.emissiveIntensity=.15;
+    this.scene.add(m);
+    this.landingGuide=this.makeLandingGuide(c);this.scene.add(this.landingGuide);
+    this.preview={mesh:m,cube:c,quarter,yawOffset,pitch};
+    this.movePreview(state,clientX,clientY,quarter,yawOffset,pitch);beep('drag');
+  }
+  movePreview(state,clientX,clientY,quarter=this.preview?.quarter||0,yawOffset=this.preview?.yawOffset||0,pitch=this.preview?.pitch||0){
     if(!this.preview)return;
     const c=this.preview.cube;
-    this.preview.quarter=quarter;
-    const y=this.topY(state)+c.h/2+.48;
-    const pos=this.pointerToWorld(clientX,clientY,y);
+    this.preview.quarter=quarter;this.preview.yawOffset=yawOffset;this.preview.pitch=pitch;
+    const hoverY=this.topY(state)+c.h/2+.48;
+    const pos=this.pointerToWorld(clientX,clientY,hoverY);
     if(!pos)return;
-    // The block center is placed on the exact 3D point underneath the finger.
-    // No lerp, no gain curve, no slider-like remapping: one finger pixel in,
-    // one projected screen pixel out.
+    const q=this.previewQuat(c,quarter,yawOffset,pitch);
     this.preview.mesh.position.copy(pos);
-    this.preview.mesh.quaternion.copy(this.previewQuat(c,quarter));
-    this.previewDrop={x:pos.x,z:pos.z,quarter};
+    this.preview.mesh.quaternion.copy(q);
+    if(this.landingGuide){
+      const landingY=this.topY(state)+c.h/2+.035;
+      this.landingGuide.position.set(pos.x,landingY,pos.z);
+      this.landingGuide.quaternion.copy(q);
+      this.landingGuide.material.color.setHex(this.guideColor(state,c,pos,quarter));
+    }
+    this.previewDrop={x:pos.x,z:pos.z,quarter,yawOffset,pitch};
   }
-  cancelPreview(){if(this.preview){this.scene.remove(this.preview.mesh);this.preview.mesh.geometry.dispose();this.preview.mesh.material.dispose();this.preview=null}this.previewDrop=null}
+  cancelPreview(){
+    if(this.preview){this.scene.remove(this.preview.mesh);this.preview.mesh.geometry.dispose();this.preview.mesh.material.dispose();this.preview=null}
+    if(this.landingGuide){this.scene.remove(this.landingGuide);this.landingGuide.geometry.dispose();this.landingGuide.material.dispose();this.landingGuide=null}
+    this.previewDrop=null;
+  }
   bodyFor(c,mass){const body=new CANNON.Body({mass,material:this.blockMat,allowSleep:true,sleepSpeedLimit:.08,sleepTimeLimit:.6});const shape=new CANNON.Box(new CANNON.Vec3(c.w*.47,c.h*.47,c.d*.47));body.addShape(shape,new CANNON.Vec3(c.biasX,0,c.biasZ));body.linearDamping=.12;body.angularDamping=.18;return body}
   addDynamic(c,transform){const m=this.cubeMesh(c);m.position.fromArray(transform.position);m.quaternion.fromArray(transform.quaternion);this.scene.add(m);this.meshes.set(c.id,m);const mass=Math.max(.6,c.w*c.h*c.d*.52);const b=this.bodyFor(c,mass);b.position.set(...transform.position);b.quaternion.set(...transform.quaternion);this.world.addBody(b);this.bodies.set(c.id,b);return b}
   async dropAndSettle(state,cube,drop,onCount){
@@ -212,7 +256,7 @@ class TowerWorld {
     const order=[];
     for(const t of state.stack||[]){const c=cubeById(state,t.cubeId);if(!c)continue;this.addDynamic(c,t);order.push(c.id)}
     const y=this.topY(state)+cube.h/2+.62;
-    const tq=this.previewQuat(cube,drop.quarter||0);const transform={position:[drop.x,y,drop.z],quaternion:[tq.x,tq.y,tq.z,tq.w]};
+    const tq=this.previewQuat(cube,drop.quarter||0,drop.yawOffset||0,drop.pitch||0);const transform={position:[drop.x,y,drop.z],quaternion:[tq.x,tq.y,tq.z,tq.w]};
     const body=this.addDynamic(cube,transform);body.velocity.set(0,-.22,0);body.angularVelocity.set((cube.slantZ||0)*.05,0,(cube.slantX||0)*-.05);order.push(cube.id);
     this.simulating=true;this.simOrder=order;this.simCubes=state.cubes;this.simEnd=performance.now()+3050;this.lastCount=null;this.onCount=onCount;this.frameCamera({...state,stack:[...(state.stack||[]),transform]});
     return new Promise(resolve=>{this.simResolve=resolve});
@@ -249,10 +293,10 @@ function activeHand(){return mode==='solo'?(solo?.hand||[]):(room?.myHand||[])}
 function isMyTurn(state){return mode==='solo'||state?.turn===myIndex}
 function stackCardText(c){if(!c)return'';if(c.type==='wild')return'ANY BLOCK';if(c.type==='combo_disrupt')return'ANY BLOCK + SCRAMBLE';if(c.type==='combo_skip')return'ANY BLOCK + SKIP';const color=c.color==='any'?'ANY':c.color.toUpperCase();const size=c.size==='any'?'ANY SIZE':c.size.toUpperCase();return`${color} ${size}`}
 function cardMeta(c){
-  if(c.type==='pass')return{title:'PASS',sub:'No block. End your turn.',kind:'action',icon:'â†ª'};
-  if(c.type==='skip')return{title:'SKIP',sub:'Skip rival. Go again.',kind:'action',icon:'Â»'};
-  if(c.type==='combo_disrupt')return{title:'SCRAMBLE',sub:'Stack any + reroll rival card.',kind:'combo',icon:'âš¡'};
-  if(c.type==='combo_skip')return{title:'POWER PLAY',sub:'Stack any + skip rival.',kind:'combo',icon:'Â»'};
+  if(c.type==='pass')return{title:'PASS',sub:'No block. End your turn.',kind:'action',icon:'Ã¢â€ Âª'};
+  if(c.type==='skip')return{title:'SKIP',sub:'Skip rival. Go again.',kind:'action',icon:'Ã‚Â»'};
+  if(c.type==='combo_disrupt')return{title:'SCRAMBLE',sub:'Stack any + reroll rival card.',kind:'combo',icon:'Ã¢Å¡Â¡'};
+  if(c.type==='combo_skip')return{title:'POWER PLAY',sub:'Stack any + skip rival.',kind:'combo',icon:'Ã‚Â»'};
   if(c.type==='wild')return{title:'WILD',sub:'Stack any block.',kind:'combo',icon:'W'};
   const title=`${c.color==='any'?'ANY':c.color.toUpperCase()} ${c.size==='any'?'SIZE':c.size.toUpperCase()}`;
   const sub=c.color==='any'?`Any color ${c.size}`:c.size==='any'?`Any ${c.color} size`:'Stack this block';
@@ -267,15 +311,67 @@ function renderHand(state){
     b.type='button';b.className=`hand-card ${m.kind}${canChoose&&playable?' playable':''}${(!canChoose||!playable)?' disabled':''}`;b.style.setProperty('--card-tilt',`${[-2,1,-1,2][i]||0}deg`);
     const chipColor=c.type==='stack'?(c.color==='any'?'linear-gradient(135deg,#f50073 0 33%,#ffe61f 33% 66%,#28a9e8 66%)':CSS_COLORS[c.color]):'linear-gradient(135deg,#f50073,#6545ff)';
     b.style.setProperty('--chip',chipColor);b.disabled=!canChoose||!playable;
+    b.dataset.cardIndex=String(i);b._wonkyCard=c;
     b.innerHTML=`<span class="card-chip">${m.kind==='action'?m.icon:''}</span><span class="card-title">${m.title}</span><span class="card-sub">${m.sub}</span>`;
-    b.addEventListener('click',()=>playCard(c));el.cardHand.appendChild(b);
+    if(canChoose&&playable)b.addEventListener('pointerdown',ev=>startCardGesture(ev,b,c));
+    b.addEventListener('click',ev=>{if(ev.detail===0&&Date.now()>suppressCardClickUntil)playCard(c)});
+    el.cardHand.appendChild(b);
   });
+}
+
+
+function clearCardGestureClasses(){
+  el.cardHand.querySelectorAll('.gesture-hover,.reading').forEach(n=>n.classList.remove('gesture-hover','reading'));
+}
+function cardUnderPoint(x,y){
+  const n=document.elementFromPoint(x,y)?.closest?.('.hand-card');
+  return n&&el.cardHand.contains(n)&&!n.disabled?n:null;
+}
+function updateCardGestureTarget(node){
+  if(!cardGesture||!node)return;
+  const prev=cardGesture.node;
+  if(prev!==node){
+    prev?.classList.remove('gesture-hover','reading');
+    cardGesture.node=node;cardGesture.card=node._wonkyCard;cardGesture.changedAt=performance.now();
+    node.classList.add('gesture-hover');haptic(7);
+  }
+  clearTimeout(cardGesture.readTimer);
+  cardGesture.readTimer=setTimeout(()=>{
+    if(cardGesture?.node===node){node.classList.add('reading');beep('tap')}
+  },240);
+}
+function startCardGesture(ev,node,c){
+  if(cardGesture||settling)return;ev.preventDefault();
+  cardGesture={pointerId:ev.pointerId,node,card:c,changedAt:performance.now(),readTimer:null};
+  try{node.setPointerCapture(ev.pointerId)}catch{}
+  node.classList.add('gesture-hover');updateCardGestureTarget(node);
+  window.addEventListener('pointermove',moveCardGesture,{passive:false});
+  window.addEventListener('pointerup',endCardGesture,{once:true});
+  window.addEventListener('pointercancel',cancelCardGesture,{once:true});
+}
+function moveCardGesture(ev){
+  if(!cardGesture||ev.pointerId!==cardGesture.pointerId)return;ev.preventDefault();
+  const node=cardUnderPoint(ev.clientX,ev.clientY);if(node)updateCardGestureTarget(node);
+}
+function finishCardGestureListeners(){window.removeEventListener('pointermove',moveCardGesture);window.removeEventListener('pointerup',endCardGesture);window.removeEventListener('pointercancel',cancelCardGesture)}
+function cancelCardGesture(ev){
+  if(!cardGesture||(!ev||ev.pointerId===cardGesture.pointerId)){
+    if(cardGesture?.readTimer)clearTimeout(cardGesture.readTimer);cardGesture=null;clearCardGestureClasses();finishCardGestureListeners();
+  }
+}
+function endCardGesture(ev){
+  if(!cardGesture||ev.pointerId!==cardGesture.pointerId)return;
+  const chosen=cardUnderPoint(ev.clientX,ev.clientY)||cardGesture.node;
+  const card=chosen?._wonkyCard;
+  if(cardGesture.readTimer)clearTimeout(cardGesture.readTimer);
+  suppressCardClickUntil=Date.now()+350;cardGesture=null;clearCardGestureClasses();finishCardGestureListeners();
+  if(card){beep('card');haptic(18);playCard(card)}
 }
 
 function renderDock(state){
   const canPlace=isMyTurn(state)&&state.phase==='placing'&&!!state.activeCard&&!settling;
   el.cubeRack.innerHTML='';el.rotateBtn.classList.toggle('hidden',!canPlace);
-  if(canPlace){el.dockTitle.textContent='DRAG A BLOCK';el.dockHint.textContent=`${stackCardText(state.activeCard)} Â· rotation ${rotationQuarter*90}Â°`}
+  if(canPlace){el.dockTitle.textContent='DRAG A BLOCK';el.dockHint.textContent=`${stackCardText(state.activeCard)} Ã‚Â· rotation ${rotationQuarter*90}Ã‚Â°`}
   else{el.dockTitle.textContent='BLOCKS';el.dockHint.textContent=state.phase==='choose_card'?(isMyTurn(state)?'Pick a card first':'Rival is choosing'):'Waiting for the tower'}
   state.cubes.forEach(cube=>{
     const b=document.createElement('button');b.type='button';const playable=canPlace&&cardAllows(cube,state.activeCard);b.className=`rack-cube${playable?' playable':''}${cube.used?' used':''}`;b.disabled=!playable;b.style.setProperty('--block-color',CSS_COLORS[cube.color]);b.style.setProperty('--mini-rot',`${(cube.slantX*20)+(cube.wobbleSeed%5-2)}deg`);b.innerHTML=`<span class="mini-block"></span><span class="size-dot">${cube.size[0].toUpperCase()}</span>`;
@@ -284,10 +380,33 @@ function renderDock(state){
 }
 
 function startBlockDrag(ev,cube,node){
-  if(settling)return;const state=activeState();if(!state||state.phase!=='placing'||!cardAllows(cube,state.activeCard))return;ev.preventDefault();dragging={pointerId:ev.pointerId,cube,node,state,lastX:ev.clientX,lastY:ev.clientY};try{node.setPointerCapture(ev.pointerId)}catch{}node.classList.add('dragging');towerWorld.beginPreview(cube,state,ev.clientX,ev.clientY,rotationQuarter);haptic(14);window.addEventListener('pointermove',moveBlockDrag,{passive:false});window.addEventListener('pointerup',endBlockDrag,{once:true});window.addEventListener('pointercancel',cancelBlockDrag,{once:true});
+  if(settling)return;const state=activeState();if(!state||state.phase!=='placing'||!cardAllows(cube,state.activeCard))return;
+  ev.preventDefault();rotationYawOffset=0;rotationPitch=0;secondaryRotate=null;
+  dragging={pointerId:ev.pointerId,cube,node,state,lastX:ev.clientX,lastY:ev.clientY};
+  try{node.setPointerCapture(ev.pointerId)}catch{}node.classList.add('dragging');
+  towerWorld.beginPreview(cube,state,ev.clientX,ev.clientY,rotationQuarter,rotationYawOffset,rotationPitch);haptic(14);
+  window.addEventListener('pointermove',moveBlockDrag,{passive:false});window.addEventListener('pointerup',endBlockDrag);window.addEventListener('pointercancel',cancelBlockDrag);
 }
-function moveBlockDrag(ev){if(!dragging||ev.pointerId!==dragging.pointerId)return;ev.preventDefault();dragging.lastX=ev.clientX;dragging.lastY=ev.clientY;towerWorld.movePreview(activeState(),ev.clientX,ev.clientY,rotationQuarter)}
-function cleanDragListeners(){window.removeEventListener('pointermove',moveBlockDrag);window.removeEventListener('pointerup',endBlockDrag);window.removeEventListener('pointercancel',cancelBlockDrag)}
+function beginSecondaryRotate(ev){
+  if(!dragging||ev.pointerId===dragging.pointerId||secondaryRotate)return;
+  ev.preventDefault();secondaryRotate={pointerId:ev.pointerId,startX:ev.clientX,startY:ev.clientY,baseYaw:rotationYawOffset,basePitch:rotationPitch};
+  try{ev.target.setPointerCapture?.(ev.pointerId)}catch{}haptic(8);
+}
+function moveBlockDrag(ev){
+  if(!dragging)return;
+  if(ev.pointerId===dragging.pointerId){
+    ev.preventDefault();dragging.lastX=ev.clientX;dragging.lastY=ev.clientY;
+    towerWorld.movePreview(activeState(),ev.clientX,ev.clientY,rotationQuarter,rotationYawOffset,rotationPitch);return;
+  }
+  if(secondaryRotate&&ev.pointerId===secondaryRotate.pointerId){
+    ev.preventDefault();const dx=ev.clientX-secondaryRotate.startX,dy=ev.clientY-secondaryRotate.startY;
+    rotationYawOffset=secondaryRotate.baseYaw+dx*.012;
+    rotationPitch=Math.max(-1.2,Math.min(1.2,secondaryRotate.basePitch-dy*.012));
+    towerWorld.movePreview(activeState(),dragging.lastX,dragging.lastY,rotationQuarter,rotationYawOffset,rotationPitch);
+  }
+}
+function endSecondaryRotate(ev){if(secondaryRotate&&ev.pointerId===secondaryRotate.pointerId)secondaryRotate=null}
+function cleanDragListeners(){window.removeEventListener('pointermove',moveBlockDrag);window.removeEventListener('pointerup',endBlockDrag);window.removeEventListener('pointercancel',cancelBlockDrag);secondaryRotate=null}
 function cancelBlockDrag(ev){if(dragging&&(!ev||ev.pointerId===dragging.pointerId)){dragging.node?.classList.remove('dragging');dragging=null;towerWorld.cancelPreview();cleanDragListeners()}}
 async function endBlockDrag(ev){
   if(!dragging||ev.pointerId!==dragging.pointerId)return;const d=dragging;dragging=null;d.node?.classList.remove('dragging');cleanDragListeners();
@@ -302,12 +421,12 @@ async function settlePlacedBlock(cube,drop){
     const result=await towerWorld.dropAndSettle(state,cube,drop,count=>{el.settleCounter.querySelector('strong').textContent=String(count)});
     el.settleCounter.classList.add('hidden');if(result.collapsed){beep('boom');haptic([70,45,120])}else{beep('good');haptic(35)}
     if(mode==='solo')applySoloPlacement(cube,result);else sendVsAction({type:'place_result',cubeId:cube.id,collapsed:result.collapsed,transforms:result.transforms});
-  }catch(e){console.error(e);toast('Physics hiccup. Try that block again.');towerWorld.loadState(state)}finally{settling=false;rotationQuarter=0;renderGame()}
+  }catch(e){console.error(e);toast('Physics hiccup. Try that block again.');towerWorld.loadState(state)}finally{settling=false;rotationQuarter=0;rotationYawOffset=0;rotationPitch=0;renderGame()}
 }
 
-function startSolo(resume=false){mode='solo';room=null;myIndex=null;rotationQuarter=0;settling=false;solo=resume?loadSolo():freshSolo();if(!solo)solo=freshSolo();history.replaceState({},'',location.pathname+'?solo=1');showOnly('game');renderGame(true)}
+function startSolo(resume=false){mode='solo';room=null;myIndex=null;rotationQuarter=0;rotationYawOffset=0;rotationPitch=0;settling=false;solo=resume?loadSolo():freshSolo();if(!solo)solo=freshSolo();history.replaceState({},'',location.pathname+'?solo=1');showOnly('game');renderGame(true)}
 function playSoloCard(c){
-  if(!solo||solo.phase!=='choose_card'||!cardPlayable(solo,c)||settling)return;const at=solo.hand.findIndex(x=>x.id===c.id);if(at<0)return;solo.discard.push(c);solo.hand.splice(at,1,drawSoloCard(solo));solo.activeCard=c;solo.phase='placing';solo.message='Drag a matching block onto the tower.';rotationQuarter=0;beep('card');haptic(16);saveSolo();renderGame();
+  if(!solo||solo.phase!=='choose_card'||!cardPlayable(solo,c)||settling)return;const at=solo.hand.findIndex(x=>x.id===c.id);if(at<0)return;solo.discard.push(c);solo.hand.splice(at,1,drawSoloCard(solo));solo.activeCard=c;solo.phase='placing';solo.message='Drag a matching block onto the tower.';rotationQuarter=0;rotationYawOffset=0;rotationPitch=0;beep('card');haptic(16);saveSolo();renderGame();
 }
 function applySoloPlacement(cube,result){
   if(!solo)return;cube.used=true;solo.stack=result.transforms;solo.collapsed=result.collapsed;
@@ -317,9 +436,9 @@ function applySoloPlacement(cube,result){
 }
 
 function enterVsLobby(){mode='vs';room=null;myIndex=null;showOnly('lobby');el.playerName.value=localStorage.getItem('wonkyName')||'Joey';el.inviteBox.classList.add('hidden');el.createRoomBtn.classList.remove('hidden');setError('');history.replaceState({},'',location.pathname)}
-function createRoom(){const name=(el.playerName.value||'Joey').trim().slice(0,24)||'Joey';localStorage.setItem('wonkyName',name);el.createRoomBtn.disabled=true;el.createRoomBtn.textContent='CREATINGâ€¦';socket.emit('room:create',{playerId,name},res=>{el.createRoomBtn.disabled=false;el.createRoomBtn.textContent='CREATE ROOM';if(!res?.ok){setError(res?.error||'Could not create room.');return}room=res.room;myIndex=0;history.replaceState({},'',`/?room=${encodeURIComponent(room.id)}&host=1`);renderLobbyRoom()})}
-function joinRoomFromUrl(){const q=new URLSearchParams(location.search),roomId=q.get('room');if(!roomId)return;mode='vs';showOnly('lobby');const role=q.get('host')==='1'?'host':'guest';const name=(role==='host'?(localStorage.getItem('wonkyName')||'Joey'):(q.get('guest')||localStorage.getItem('wonkyGuestName')||'Sabrina')).slice(0,24);if(role==='guest')localStorage.setItem('wonkyGuestName',name);el.playerName.value=name;el.createRoomBtn.classList.add('hidden');el.inviteBox.classList.add('hidden');el.lobbyTitle.textContent=role==='host'?'Rejoining your roomâ€¦':`Joining ${q.get('hostName')||'Joey'}â€¦`;el.lobbyText.textContent='The server kept the room seat and tower state. Reconnectingâ€¦';socket.emit('room:join',{roomId,playerId,name,role},res=>{if(!res?.ok){setError(res?.error||'Could not join room.');el.lobbyTitle.textContent='Room unavailable';return}room=res.room;myIndex=res.index;if(room.state){showOnly('game');renderGame(true)}else renderLobbyRoom()})}
-function renderLobbyRoom(){if(!room)return;showOnly('lobby');el.createRoomBtn.classList.add('hidden');el.lobbyTitle.textContent='Room ready';el.lobbyText.textContent='This room survives refreshes and brief disconnects. Send the same link whenever Sabrina needs back in.';el.inviteBox.classList.remove('hidden');el.inviteLink.value=`${location.origin}/?room=${encodeURIComponent(room.id)}&guest=Sabrina`;const rival=room.players?.[1];if(rival?.connected){el.inviteStatus.textContent=`${rival.name} joined`;setTimeout(()=>{showOnly('game');renderGame(true)},120)}else el.inviteStatus.textContent='Waiting for Sabrinaâ€¦'}
+function createRoom(){const name=(el.playerName.value||'Joey').trim().slice(0,24)||'Joey';localStorage.setItem('wonkyName',name);el.createRoomBtn.disabled=true;el.createRoomBtn.textContent='CREATINGÃ¢â‚¬Â¦';socket.emit('room:create',{playerId,name},res=>{el.createRoomBtn.disabled=false;el.createRoomBtn.textContent='CREATE ROOM';if(!res?.ok){setError(res?.error||'Could not create room.');return}room=res.room;myIndex=0;history.replaceState({},'',`/?room=${encodeURIComponent(room.id)}&host=1`);renderLobbyRoom()})}
+function joinRoomFromUrl(){const q=new URLSearchParams(location.search),roomId=q.get('room');if(!roomId)return;mode='vs';showOnly('lobby');const role=q.get('host')==='1'?'host':'guest';const name=(role==='host'?(localStorage.getItem('wonkyName')||'Joey'):(q.get('guest')||localStorage.getItem('wonkyGuestName')||'Sabrina')).slice(0,24);if(role==='guest')localStorage.setItem('wonkyGuestName',name);el.playerName.value=name;el.createRoomBtn.classList.add('hidden');el.inviteBox.classList.add('hidden');el.lobbyTitle.textContent=role==='host'?'Rejoining your roomÃ¢â‚¬Â¦':`Joining ${q.get('hostName')||'Joey'}Ã¢â‚¬Â¦`;el.lobbyText.textContent='The server kept the room seat and tower state. ReconnectingÃ¢â‚¬Â¦';socket.emit('room:join',{roomId,playerId,name,role},res=>{if(!res?.ok){setError(res?.error||'Could not join room.');el.lobbyTitle.textContent='Room unavailable';return}room=res.room;myIndex=res.index;if(room.state){showOnly('game');renderGame(true)}else renderLobbyRoom()})}
+function renderLobbyRoom(){if(!room)return;showOnly('lobby');el.createRoomBtn.classList.add('hidden');el.lobbyTitle.textContent='Room ready';el.lobbyText.textContent='This room survives refreshes and brief disconnects. Send the same link whenever Sabrina needs back in.';el.inviteBox.classList.remove('hidden');el.inviteLink.value=`${location.origin}/?room=${encodeURIComponent(room.id)}&guest=Sabrina`;const rival=room.players?.[1];if(rival?.connected){el.inviteStatus.textContent=`${rival.name} joined`;setTimeout(()=>{showOnly('game');renderGame(true)},120)}else el.inviteStatus.textContent='Waiting for SabrinaÃ¢â‚¬Â¦'}
 function sendVsAction(action){if(!room)return;socket.emit('game:action',{roomId:room.id,action},res=>{if(!res?.ok)toast(res?.error||'Nope.')})}
 function playCard(c){if(settling)return;if(mode==='solo'){playSoloCard(c);return}beep(c.type==='skip'?'skip':'card');haptic(16);sendVsAction({type:'play_card',cardId:c.id})}
 
@@ -332,7 +451,7 @@ function renderEffects(state){if(mode!=='vs'||!state?.lastEffect)return;const e=
 function towerMood(state){if(state.phase==='gameover'&&state.collapsed)return'TOWER DOWN';const n=state.stack.length;if(n<=1)return'Fresh start';if(n<=3)return'Steady-ish';if(n<=5)return'Getting weird';if(n<=7)return'Properly wonky';return'Do not breathe'}
 
 function renderGame(first=false){
-  const state=activeState();if(!state)return;showOnly('game');const myTurn=isMyTurn(state);el.modeLabel.textContent=mode==='solo'?'SOLO STACK':'VS DUEL';el.turnLabel.textContent=state.phase==='gameover'?'ROUND OVER':settling?'SETTLINGâ€¦':myTurn?'YOUR TURN':`${state.players?.[state.turn]||'RIVAL'}'S TURN`;el.stackValue.textContent=`${state.stack.length} / 9`;el.towerMood.textContent=towerMood(state);renderConnection();
+  const state=activeState();if(!state)return;showOnly('game');const myTurn=isMyTurn(state);el.modeLabel.textContent=mode==='solo'?'SOLO STACK':'VS DUEL';el.turnLabel.textContent=state.phase==='gameover'?'ROUND OVER':settling?'SETTLINGÃ¢â‚¬Â¦':myTurn?'YOUR TURN':`${state.players?.[state.turn]||'RIVAL'}'S TURN`;el.stackValue.textContent=`${state.stack.length} / 9`;el.towerMood.textContent=towerMood(state);renderConnection();
   if(mode==='solo'){const best=Number(localStorage.getItem('wonkyBestV3')||0);el.scoreTitle.textContent='SCORE';el.scoreValue.textContent=solo.score.toLocaleString();el.bestTitle.textContent='BEST';el.bestValue.textContent=best.toLocaleString();el.soloMeta.classList.remove('hidden');el.comboValue.textContent='x'+solo.combo;el.braveryValue.textContent=solo.bravery;el.soloBestMini.textContent=best.toLocaleString()}else{el.soloMeta.classList.add('hidden');el.scoreTitle.textContent='YOU';el.scoreValue.textContent=room?.players?.[myIndex]?.name||'You';el.bestTitle.textContent='RIVAL';el.bestValue.textContent=room?.players?.[1-myIndex]?.name||'Waiting'}
   if(state.phase==='choose_card')el.actionHint.textContent=myTurn?'Pick one of your four cards.':'Rival is choosing a card.';else if(state.phase==='placing')el.actionHint.textContent=myTurn?'Drag a matching block up here.':'Rival is placing a block.';else el.actionHint.textContent='Round complete.';
   renderHand(state);renderDock(state);if(!settling)towerWorld.loadState(state);renderGameOver(state);renderEffects(state);if(first)setTimeout(()=>towerWorld.resize(),70);
@@ -346,9 +465,13 @@ el.soundBtn.addEventListener('click',()=>{soundOn=!soundOn;localStorage.setItem(
 el.createRoomBtn.addEventListener('click',createRoom);
 el.copyInviteBtn.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(el.inviteLink.value);toast('Invite copied')}catch{el.inviteLink.focus();el.inviteLink.select();toast('Link selected')}beep('tap')});
 el.shareInviteBtn.addEventListener('click',async()=>{const url=el.inviteLink.value;try{if(navigator.share)await navigator.share({title:'Wonky Tower Duel',text:'Play Wonky Tower Duel with me. Four cards. Nine blocks. Bad decisions.',url});else{await navigator.clipboard.writeText(url);toast('Invite copied')}}catch{}});
-el.rotateBtn.addEventListener('click',()=>{rotationQuarter=(rotationQuarter+1)%4;beep('tap');haptic(10);const state=activeState();if(dragging)towerWorld.movePreview(state,dragging.lastX||0,dragging.lastY||0,rotationQuarter);renderDock(state)});
-el.rematchBtn.addEventListener('click',()=>{settling=false;rotationQuarter=0;lastEffectKey='';if(mode==='solo'){localStorage.removeItem('wonkySoloStateV3');startSolo(false)}else sendVsAction({type:'rematch'})});
+el.rotateBtn.addEventListener('click',()=>{rotationQuarter=(rotationQuarter+1)%4;beep('tap');haptic(10);const state=activeState();if(dragging)towerWorld.movePreview(state,dragging.lastX||0,dragging.lastY||0,rotationQuarter,rotationYawOffset,rotationPitch);renderDock(state)});
+el.rematchBtn.addEventListener('click',()=>{settling=false;rotationQuarter=0;rotationYawOffset=0;rotationPitch=0;lastEffectKey='';if(mode==='solo'){localStorage.removeItem('wonkySoloStateV3');startSolo(false)}else sendVsAction({type:'rematch'})});
+window.addEventListener('pointerdown',beginSecondaryRotate,{passive:false});
+window.addEventListener('pointerup',endSecondaryRotate,{passive:true});
+window.addEventListener('pointercancel',endSecondaryRotate,{passive:true});
 window.addEventListener('resize',()=>towerWorld.resize());
 
 (function boot(){const q=new URLSearchParams(location.search);if(q.get('room')){mode='vs';showOnly('lobby');joinRoomFromUrl()}else if(q.get('solo')==='1'&&loadSolo()){startSolo(true)}else showOnly('home')})();
+
 
