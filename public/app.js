@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+﻿import * as THREE from 'three';
 import * as CANNON from '/vendor/cannon/dist/cannon-es.js';
 import { RoundedBoxGeometry } from '/vendor/three/examples/jsm/geometries/RoundedBoxGeometry.js';
 
@@ -38,7 +38,7 @@ if (!playerId) {
 }
 const socket = io({reconnection:true,reconnectionDelay:400,reconnectionDelayMax:2200});
 
-function setSoundIcon(){ el.soundBtn.textContent=soundOn?'♪':'×'; }
+function setSoundIcon(){ el.soundBtn.textContent=soundOn?'â™ª':'Ã—'; }
 setSoundIcon();
 function beep(kind='tap') {
   if (!soundOn) return;
@@ -173,10 +173,36 @@ class TowerWorld {
     const targetY=Math.max(1.4,top*.48);const z=Math.max(7.2,6.8+top*.38);const y=Math.max(4.5,3.8+top*.36);this.camera.position.set(5.2,y,z);this.camera.lookAt(0,targetY,0);
   }
   topY(state){let top=0;for(const t of state?.stack||[]){const c=cubeById(state,t.cubeId);if(c)top=Math.max(top,(t.position?.[1]||0)+c.h*.58)}return top}
-  pointerToXZ(clientX,clientY){const r=this.canvas.getBoundingClientRect();const nx=Math.max(0,Math.min(1,(clientX-r.left)/r.width));const ny=Math.max(0,Math.min(1,(clientY-r.top)/r.height));return{x:(nx-.5)*5.0,z:(ny-.54)*2.7}}
+  pointerToWorld(clientX,clientY,planeY){
+    const r=this.canvas.getBoundingClientRect();
+    // Do NOT clamp. The pointer ray should continue naturally even while the
+    // finger is just outside the canvas so the block never "snaps" at an edge.
+    const ndc=new THREE.Vector2(
+      ((clientX-r.left)/r.width)*2-1,
+      -(((clientY-r.top)/r.height)*2-1)
+    );
+    const raycaster=new THREE.Raycaster();
+    raycaster.setFromCamera(ndc,this.camera);
+    const plane=new THREE.Plane(new THREE.Vector3(0,1,0),-planeY);
+    const hit=new THREE.Vector3();
+    return raycaster.ray.intersectPlane(plane,hit)?hit:null;
+  }
   previewQuat(c,quarter){const q=new THREE.Quaternion();q.setFromEuler(new THREE.Euler(c.slantZ*.08,quarter*Math.PI/2,-c.slantX*.08,'XYZ'));return q}
   beginPreview(c,state,clientX,clientY,quarter){this.cancelPreview();const m=this.cubeMesh(c,.74);m.material.emissive=new THREE.Color(COLORS[c.color]);m.material.emissiveIntensity=.15;this.scene.add(m);this.preview={mesh:m,cube:c,quarter};this.movePreview(state,clientX,clientY,quarter);beep('drag')}
-  movePreview(state,clientX,clientY,quarter=this.preview?.quarter||0){if(!this.preview)return;const c=this.preview.cube;this.preview.quarter=quarter;const pos=this.pointerToXZ(clientX,clientY);const y=this.topY(state)+c.h/2+.48;this.preview.mesh.position.set(pos.x,y,pos.z);this.preview.mesh.quaternion.copy(this.previewQuat(c,quarter));this.previewDrop={x:pos.x,z:pos.z,quarter}}
+  movePreview(state,clientX,clientY,quarter=this.preview?.quarter||0){
+    if(!this.preview)return;
+    const c=this.preview.cube;
+    this.preview.quarter=quarter;
+    const y=this.topY(state)+c.h/2+.48;
+    const pos=this.pointerToWorld(clientX,clientY,y);
+    if(!pos)return;
+    // The block center is placed on the exact 3D point underneath the finger.
+    // No lerp, no gain curve, no slider-like remapping: one finger pixel in,
+    // one projected screen pixel out.
+    this.preview.mesh.position.copy(pos);
+    this.preview.mesh.quaternion.copy(this.previewQuat(c,quarter));
+    this.previewDrop={x:pos.x,z:pos.z,quarter};
+  }
   cancelPreview(){if(this.preview){this.scene.remove(this.preview.mesh);this.preview.mesh.geometry.dispose();this.preview.mesh.material.dispose();this.preview=null}this.previewDrop=null}
   bodyFor(c,mass){const body=new CANNON.Body({mass,material:this.blockMat,allowSleep:true,sleepSpeedLimit:.08,sleepTimeLimit:.6});const shape=new CANNON.Box(new CANNON.Vec3(c.w*.47,c.h*.47,c.d*.47));body.addShape(shape,new CANNON.Vec3(c.biasX,0,c.biasZ));body.linearDamping=.12;body.angularDamping=.18;return body}
   addDynamic(c,transform){const m=this.cubeMesh(c);m.position.fromArray(transform.position);m.quaternion.fromArray(transform.quaternion);this.scene.add(m);this.meshes.set(c.id,m);const mass=Math.max(.6,c.w*c.h*c.d*.52);const b=this.bodyFor(c,mass);b.position.set(...transform.position);b.quaternion.set(...transform.quaternion);this.world.addBody(b);this.bodies.set(c.id,b);return b}
@@ -223,10 +249,10 @@ function activeHand(){return mode==='solo'?(solo?.hand||[]):(room?.myHand||[])}
 function isMyTurn(state){return mode==='solo'||state?.turn===myIndex}
 function stackCardText(c){if(!c)return'';if(c.type==='wild')return'ANY BLOCK';if(c.type==='combo_disrupt')return'ANY BLOCK + SCRAMBLE';if(c.type==='combo_skip')return'ANY BLOCK + SKIP';const color=c.color==='any'?'ANY':c.color.toUpperCase();const size=c.size==='any'?'ANY SIZE':c.size.toUpperCase();return`${color} ${size}`}
 function cardMeta(c){
-  if(c.type==='pass')return{title:'PASS',sub:'No block. End your turn.',kind:'action',icon:'↪'};
-  if(c.type==='skip')return{title:'SKIP',sub:'Skip rival. Go again.',kind:'action',icon:'»'};
-  if(c.type==='combo_disrupt')return{title:'SCRAMBLE',sub:'Stack any + reroll rival card.',kind:'combo',icon:'⚡'};
-  if(c.type==='combo_skip')return{title:'POWER PLAY',sub:'Stack any + skip rival.',kind:'combo',icon:'»'};
+  if(c.type==='pass')return{title:'PASS',sub:'No block. End your turn.',kind:'action',icon:'â†ª'};
+  if(c.type==='skip')return{title:'SKIP',sub:'Skip rival. Go again.',kind:'action',icon:'Â»'};
+  if(c.type==='combo_disrupt')return{title:'SCRAMBLE',sub:'Stack any + reroll rival card.',kind:'combo',icon:'âš¡'};
+  if(c.type==='combo_skip')return{title:'POWER PLAY',sub:'Stack any + skip rival.',kind:'combo',icon:'Â»'};
   if(c.type==='wild')return{title:'WILD',sub:'Stack any block.',kind:'combo',icon:'W'};
   const title=`${c.color==='any'?'ANY':c.color.toUpperCase()} ${c.size==='any'?'SIZE':c.size.toUpperCase()}`;
   const sub=c.color==='any'?`Any color ${c.size}`:c.size==='any'?`Any ${c.color} size`:'Stack this block';
@@ -249,7 +275,7 @@ function renderHand(state){
 function renderDock(state){
   const canPlace=isMyTurn(state)&&state.phase==='placing'&&!!state.activeCard&&!settling;
   el.cubeRack.innerHTML='';el.rotateBtn.classList.toggle('hidden',!canPlace);
-  if(canPlace){el.dockTitle.textContent='DRAG A BLOCK';el.dockHint.textContent=`${stackCardText(state.activeCard)} · rotation ${rotationQuarter*90}°`}
+  if(canPlace){el.dockTitle.textContent='DRAG A BLOCK';el.dockHint.textContent=`${stackCardText(state.activeCard)} Â· rotation ${rotationQuarter*90}Â°`}
   else{el.dockTitle.textContent='BLOCKS';el.dockHint.textContent=state.phase==='choose_card'?(isMyTurn(state)?'Pick a card first':'Rival is choosing'):'Waiting for the tower'}
   state.cubes.forEach(cube=>{
     const b=document.createElement('button');b.type='button';const playable=canPlace&&cardAllows(cube,state.activeCard);b.className=`rack-cube${playable?' playable':''}${cube.used?' used':''}`;b.disabled=!playable;b.style.setProperty('--block-color',CSS_COLORS[cube.color]);b.style.setProperty('--mini-rot',`${(cube.slantX*20)+(cube.wobbleSeed%5-2)}deg`);b.innerHTML=`<span class="mini-block"></span><span class="size-dot">${cube.size[0].toUpperCase()}</span>`;
@@ -258,9 +284,9 @@ function renderDock(state){
 }
 
 function startBlockDrag(ev,cube,node){
-  if(settling)return;const state=activeState();if(!state||state.phase!=='placing'||!cardAllows(cube,state.activeCard))return;ev.preventDefault();dragging={pointerId:ev.pointerId,cube,node,state};node.classList.add('dragging');towerWorld.beginPreview(cube,state,ev.clientX,ev.clientY,rotationQuarter);haptic(14);window.addEventListener('pointermove',moveBlockDrag,{passive:false});window.addEventListener('pointerup',endBlockDrag,{once:true});window.addEventListener('pointercancel',cancelBlockDrag,{once:true});
+  if(settling)return;const state=activeState();if(!state||state.phase!=='placing'||!cardAllows(cube,state.activeCard))return;ev.preventDefault();dragging={pointerId:ev.pointerId,cube,node,state,lastX:ev.clientX,lastY:ev.clientY};try{node.setPointerCapture(ev.pointerId)}catch{}node.classList.add('dragging');towerWorld.beginPreview(cube,state,ev.clientX,ev.clientY,rotationQuarter);haptic(14);window.addEventListener('pointermove',moveBlockDrag,{passive:false});window.addEventListener('pointerup',endBlockDrag,{once:true});window.addEventListener('pointercancel',cancelBlockDrag,{once:true});
 }
-function moveBlockDrag(ev){if(!dragging||ev.pointerId!==dragging.pointerId)return;ev.preventDefault();towerWorld.movePreview(activeState(),ev.clientX,ev.clientY,rotationQuarter)}
+function moveBlockDrag(ev){if(!dragging||ev.pointerId!==dragging.pointerId)return;ev.preventDefault();dragging.lastX=ev.clientX;dragging.lastY=ev.clientY;towerWorld.movePreview(activeState(),ev.clientX,ev.clientY,rotationQuarter)}
 function cleanDragListeners(){window.removeEventListener('pointermove',moveBlockDrag);window.removeEventListener('pointerup',endBlockDrag);window.removeEventListener('pointercancel',cancelBlockDrag)}
 function cancelBlockDrag(ev){if(dragging&&(!ev||ev.pointerId===dragging.pointerId)){dragging.node?.classList.remove('dragging');dragging=null;towerWorld.cancelPreview();cleanDragListeners()}}
 async function endBlockDrag(ev){
@@ -291,9 +317,9 @@ function applySoloPlacement(cube,result){
 }
 
 function enterVsLobby(){mode='vs';room=null;myIndex=null;showOnly('lobby');el.playerName.value=localStorage.getItem('wonkyName')||'Joey';el.inviteBox.classList.add('hidden');el.createRoomBtn.classList.remove('hidden');setError('');history.replaceState({},'',location.pathname)}
-function createRoom(){const name=(el.playerName.value||'Joey').trim().slice(0,24)||'Joey';localStorage.setItem('wonkyName',name);el.createRoomBtn.disabled=true;el.createRoomBtn.textContent='CREATING…';socket.emit('room:create',{playerId,name},res=>{el.createRoomBtn.disabled=false;el.createRoomBtn.textContent='CREATE ROOM';if(!res?.ok){setError(res?.error||'Could not create room.');return}room=res.room;myIndex=0;history.replaceState({},'',`/?room=${encodeURIComponent(room.id)}&host=1`);renderLobbyRoom()})}
-function joinRoomFromUrl(){const q=new URLSearchParams(location.search),roomId=q.get('room');if(!roomId)return;mode='vs';showOnly('lobby');const role=q.get('host')==='1'?'host':'guest';const name=(role==='host'?(localStorage.getItem('wonkyName')||'Joey'):(q.get('guest')||localStorage.getItem('wonkyGuestName')||'Sabrina')).slice(0,24);if(role==='guest')localStorage.setItem('wonkyGuestName',name);el.playerName.value=name;el.createRoomBtn.classList.add('hidden');el.inviteBox.classList.add('hidden');el.lobbyTitle.textContent=role==='host'?'Rejoining your room…':`Joining ${q.get('hostName')||'Joey'}…`;el.lobbyText.textContent='The server kept the room seat and tower state. Reconnecting…';socket.emit('room:join',{roomId,playerId,name,role},res=>{if(!res?.ok){setError(res?.error||'Could not join room.');el.lobbyTitle.textContent='Room unavailable';return}room=res.room;myIndex=res.index;if(room.state){showOnly('game');renderGame(true)}else renderLobbyRoom()})}
-function renderLobbyRoom(){if(!room)return;showOnly('lobby');el.createRoomBtn.classList.add('hidden');el.lobbyTitle.textContent='Room ready';el.lobbyText.textContent='This room survives refreshes and brief disconnects. Send the same link whenever Sabrina needs back in.';el.inviteBox.classList.remove('hidden');el.inviteLink.value=`${location.origin}/?room=${encodeURIComponent(room.id)}&guest=Sabrina`;const rival=room.players?.[1];if(rival?.connected){el.inviteStatus.textContent=`${rival.name} joined`;setTimeout(()=>{showOnly('game');renderGame(true)},120)}else el.inviteStatus.textContent='Waiting for Sabrina…'}
+function createRoom(){const name=(el.playerName.value||'Joey').trim().slice(0,24)||'Joey';localStorage.setItem('wonkyName',name);el.createRoomBtn.disabled=true;el.createRoomBtn.textContent='CREATINGâ€¦';socket.emit('room:create',{playerId,name},res=>{el.createRoomBtn.disabled=false;el.createRoomBtn.textContent='CREATE ROOM';if(!res?.ok){setError(res?.error||'Could not create room.');return}room=res.room;myIndex=0;history.replaceState({},'',`/?room=${encodeURIComponent(room.id)}&host=1`);renderLobbyRoom()})}
+function joinRoomFromUrl(){const q=new URLSearchParams(location.search),roomId=q.get('room');if(!roomId)return;mode='vs';showOnly('lobby');const role=q.get('host')==='1'?'host':'guest';const name=(role==='host'?(localStorage.getItem('wonkyName')||'Joey'):(q.get('guest')||localStorage.getItem('wonkyGuestName')||'Sabrina')).slice(0,24);if(role==='guest')localStorage.setItem('wonkyGuestName',name);el.playerName.value=name;el.createRoomBtn.classList.add('hidden');el.inviteBox.classList.add('hidden');el.lobbyTitle.textContent=role==='host'?'Rejoining your roomâ€¦':`Joining ${q.get('hostName')||'Joey'}â€¦`;el.lobbyText.textContent='The server kept the room seat and tower state. Reconnectingâ€¦';socket.emit('room:join',{roomId,playerId,name,role},res=>{if(!res?.ok){setError(res?.error||'Could not join room.');el.lobbyTitle.textContent='Room unavailable';return}room=res.room;myIndex=res.index;if(room.state){showOnly('game');renderGame(true)}else renderLobbyRoom()})}
+function renderLobbyRoom(){if(!room)return;showOnly('lobby');el.createRoomBtn.classList.add('hidden');el.lobbyTitle.textContent='Room ready';el.lobbyText.textContent='This room survives refreshes and brief disconnects. Send the same link whenever Sabrina needs back in.';el.inviteBox.classList.remove('hidden');el.inviteLink.value=`${location.origin}/?room=${encodeURIComponent(room.id)}&guest=Sabrina`;const rival=room.players?.[1];if(rival?.connected){el.inviteStatus.textContent=`${rival.name} joined`;setTimeout(()=>{showOnly('game');renderGame(true)},120)}else el.inviteStatus.textContent='Waiting for Sabrinaâ€¦'}
 function sendVsAction(action){if(!room)return;socket.emit('game:action',{roomId:room.id,action},res=>{if(!res?.ok)toast(res?.error||'Nope.')})}
 function playCard(c){if(settling)return;if(mode==='solo'){playSoloCard(c);return}beep(c.type==='skip'?'skip':'card');haptic(16);sendVsAction({type:'play_card',cardId:c.id})}
 
@@ -306,7 +332,7 @@ function renderEffects(state){if(mode!=='vs'||!state?.lastEffect)return;const e=
 function towerMood(state){if(state.phase==='gameover'&&state.collapsed)return'TOWER DOWN';const n=state.stack.length;if(n<=1)return'Fresh start';if(n<=3)return'Steady-ish';if(n<=5)return'Getting weird';if(n<=7)return'Properly wonky';return'Do not breathe'}
 
 function renderGame(first=false){
-  const state=activeState();if(!state)return;showOnly('game');const myTurn=isMyTurn(state);el.modeLabel.textContent=mode==='solo'?'SOLO STACK':'VS DUEL';el.turnLabel.textContent=state.phase==='gameover'?'ROUND OVER':settling?'SETTLING…':myTurn?'YOUR TURN':`${state.players?.[state.turn]||'RIVAL'}'S TURN`;el.stackValue.textContent=`${state.stack.length} / 9`;el.towerMood.textContent=towerMood(state);renderConnection();
+  const state=activeState();if(!state)return;showOnly('game');const myTurn=isMyTurn(state);el.modeLabel.textContent=mode==='solo'?'SOLO STACK':'VS DUEL';el.turnLabel.textContent=state.phase==='gameover'?'ROUND OVER':settling?'SETTLINGâ€¦':myTurn?'YOUR TURN':`${state.players?.[state.turn]||'RIVAL'}'S TURN`;el.stackValue.textContent=`${state.stack.length} / 9`;el.towerMood.textContent=towerMood(state);renderConnection();
   if(mode==='solo'){const best=Number(localStorage.getItem('wonkyBestV3')||0);el.scoreTitle.textContent='SCORE';el.scoreValue.textContent=solo.score.toLocaleString();el.bestTitle.textContent='BEST';el.bestValue.textContent=best.toLocaleString();el.soloMeta.classList.remove('hidden');el.comboValue.textContent='x'+solo.combo;el.braveryValue.textContent=solo.bravery;el.soloBestMini.textContent=best.toLocaleString()}else{el.soloMeta.classList.add('hidden');el.scoreTitle.textContent='YOU';el.scoreValue.textContent=room?.players?.[myIndex]?.name||'You';el.bestTitle.textContent='RIVAL';el.bestValue.textContent=room?.players?.[1-myIndex]?.name||'Waiting'}
   if(state.phase==='choose_card')el.actionHint.textContent=myTurn?'Pick one of your four cards.':'Rival is choosing a card.';else if(state.phase==='placing')el.actionHint.textContent=myTurn?'Drag a matching block up here.':'Rival is placing a block.';else el.actionHint.textContent='Round complete.';
   renderHand(state);renderDock(state);if(!settling)towerWorld.loadState(state);renderGameOver(state);renderEffects(state);if(first)setTimeout(()=>towerWorld.resize(),70);
@@ -325,3 +351,4 @@ el.rematchBtn.addEventListener('click',()=>{settling=false;rotationQuarter=0;las
 window.addEventListener('resize',()=>towerWorld.resize());
 
 (function boot(){const q=new URLSearchParams(location.search);if(q.get('room')){mode='vs';showOnly('lobby');joinRoomFromUrl()}else if(q.get('solo')==='1'&&loadSolo()){startSolo(true)}else showOnly('home')})();
+
