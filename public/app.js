@@ -224,6 +224,42 @@ class TowerWorld {
     const hit=new THREE.Vector3();
     return raycaster.ray.intersectPlane(plane,hit)?hit:null;
   }
+  pointerRay(clientX,clientY){
+    const r=this.canvas.getBoundingClientRect();
+    const ndc=new THREE.Vector2(((clientX-r.left)/r.width)*2-1,-(((clientY-r.top)/r.height)*2-1));
+    const raycaster=new THREE.Raycaster();raycaster.setFromCamera(ndc,this.camera);return raycaster.ray;
+  }
+  supportSurface(state){
+    const stack=state?.stack||[];
+    if(!stack.length)return{point:new THREE.Vector3(0,.018,0),normal:new THREE.Vector3(0,1,0),support:null};
+    const top=stack[stack.length-1],c=cubeById(state,top.cubeId);
+    if(!c)return{point:new THREE.Vector3(0,this.topY(state),0),normal:new THREE.Vector3(0,1,0),support:null};
+    const q=new THREE.Quaternion(...(top.quaternion||[0,0,0,1]));
+    const axes=[
+      {v:new THREE.Vector3(1,0,0).applyQuaternion(q),half:c.w*.47},
+      {v:new THREE.Vector3(0,1,0).applyQuaternion(q),half:c.h*.47},
+      {v:new THREE.Vector3(0,0,1).applyQuaternion(q),half:c.d*.47}
+    ];
+    let best=0;for(let i=1;i<3;i++)if(Math.abs(axes[i].v.y)>Math.abs(axes[best].v.y))best=i;
+    const normal=axes[best].v.clone().normalize();if(normal.y<0)normal.multiplyScalar(-1);
+    const center=new THREE.Vector3(...(top.position||[0,c.h/2,0]));
+    const point=center.clone().addScaledVector(normal,axes[best].half+.014);
+    return{point,normal,support:{transform:top,cube:c,axis:best}};
+  }
+  pointerToSupport(state,clientX,clientY){
+    const surface=this.supportSurface(state),ray=this.pointerRay(clientX,clientY);
+    const plane=new THREE.Plane().setFromNormalAndCoplanarPoint(surface.normal,surface.point);
+    const hit=new THREE.Vector3();
+    return ray.intersectPlane(plane,hit)?{...surface,hit}:null;
+  }
+  blockExtentAlongNormal(c,q,normal){
+    const axes=[
+      {v:new THREE.Vector3(1,0,0).applyQuaternion(q),half:c.w*.47},
+      {v:new THREE.Vector3(0,1,0).applyQuaternion(q),half:c.h*.47},
+      {v:new THREE.Vector3(0,0,1).applyQuaternion(q),half:c.d*.47}
+    ];
+    return axes.reduce((sum,a)=>sum+Math.abs(a.v.dot(normal))*a.half,0);
+  }
   previewQuat(c,quarter,yawOffset=0,pitch=0){
     const q=new THREE.Quaternion();
     q.setFromEuler(new THREE.Euler(c.slantZ*.08+pitch,quarter*Math.PI/2+yawOffset,-c.slantX*.08,'XYZ'));
@@ -243,28 +279,30 @@ class TowerWorld {
     group.userData.fill=fill;group.userData.line=line;
     return group;
   }
-  updateLandingFootprint(state,c,pos,q){
+  updateLandingFootprint(state,c,contact,q,surface){
     if(!this.landingFootprint)return;
+    const normal=surface.normal;
     const axes=[
       {v:new THREE.Vector3(1,0,0).applyQuaternion(q),size:c.w},
       {v:new THREE.Vector3(0,1,0).applyQuaternion(q),size:c.h},
       {v:new THREE.Vector3(0,0,1).applyQuaternion(q),size:c.d}
     ];
-    let vertical=0;
-    for(let i=1;i<3;i++)if(Math.abs(axes[i].v.y)>Math.abs(axes[vertical].v.y))vertical=i;
-    const faceAxes=axes.filter((_,i)=>i!==vertical);
-    const project=(a,fallback)=>{
-      const v=new THREE.Vector3(a.v.x,0,a.v.z);
+    // The placed block axis most aligned with the support normal is the face
+    // touching the support. The other two axes define the footprint shape.
+    let faceAxis=0;for(let i=1;i<3;i++)if(Math.abs(axes[i].v.dot(normal))>Math.abs(axes[faceAxis].v.dot(normal)))faceAxis=i;
+    const faceAxes=axes.filter((_,i)=>i!==faceAxis);
+    const project=(axis,fallback)=>{
+      const v=axis.v.clone().addScaledVector(normal,-axis.v.dot(normal));
       if(v.lengthSq()<.0001)v.copy(fallback);
       return v.normalize();
     };
-    const u=project(faceAxes[0],new THREE.Vector3(1,0,0));
-    let v=project(faceAxes[1],new THREE.Vector3(0,0,1));
-    // Keep the two footprint directions perpendicular after projection. This
-    // makes the marker stable and readable even with the blocks' tiny wonky slants.
-    v=new THREE.Vector3(-u.z,0,u.x).multiplyScalar(Math.sign(v.dot(new THREE.Vector3(-u.z,0,u.x)))||1);
+    let fallback=new THREE.Vector3(1,0,0).addScaledVector(normal,-normal.x).normalize();
+    if(!Number.isFinite(fallback.x))fallback=new THREE.Vector3(1,0,0);
+    const u=project(faceAxes[0],fallback);
+    let v=normal.clone().cross(u).normalize();
+    if(v.dot(faceAxes[1].v)<0)v.multiplyScalar(-1);
     const hu=faceAxes[0].size*.47,hv=faceAxes[1].size*.47;
-    const center=new THREE.Vector3(pos.x,this.topY(state)+.035,pos.z);
+    const center=contact.clone().addScaledVector(normal,.025);
     const corners=[
       center.clone().addScaledVector(u,-hu).addScaledVector(v,-hv),
       center.clone().addScaledVector(u, hu).addScaledVector(v,-hv),
@@ -291,14 +329,15 @@ class TowerWorld {
     const c=this.preview.cube;
     this.preview.quarter=quarter;this.preview.yawOffset=yawOffset;this.preview.pitch=pitch;
     this.setCameraForBounds(state,{placement:true,extraCube:c});
-    const hoverY=this.topY(state)+c.h/2+.48;
-    const pos=this.pointerToWorld(clientX,clientY,hoverY);
-    if(!pos)return;
+    const surfaceHit=this.pointerToSupport(state,clientX,clientY);
+    if(!surfaceHit)return;
     const q=this.previewQuat(c,quarter,yawOffset,pitch);
-    this.preview.mesh.position.copy(pos);
+    const extent=this.blockExtentAlongNormal(c,q,surfaceHit.normal);
+    const previewPos=surfaceHit.hit.clone().addScaledVector(surfaceHit.normal,extent+.46);
+    this.preview.mesh.position.copy(previewPos);
     this.preview.mesh.quaternion.copy(q);
-    this.updateLandingFootprint(state,c,pos,q);
-    this.previewDrop={x:pos.x,z:pos.z,quarter,yawOffset,pitch};
+    this.updateLandingFootprint(state,c,surfaceHit.hit,q,surfaceHit);
+    this.previewDrop={x:surfaceHit.hit.x,y:surfaceHit.hit.y,z:surfaceHit.hit.z,normal:[surfaceHit.normal.x,surfaceHit.normal.y,surfaceHit.normal.z],quarter,yawOffset,pitch};
   }
   cancelPreview(){
     if(this.preview){this.scene.remove(this.preview.mesh);this.preview.mesh.geometry.dispose();this.preview.mesh.material.dispose();this.preview=null}
@@ -317,8 +356,12 @@ class TowerWorld {
     this.cancelPreview();this.clearStack();
     const order=[];
     for(const t of state.stack||[]){const c=cubeById(state,t.cubeId);if(!c)continue;this.addDynamic(c,t);order.push(c.id)}
-    const y=this.topY(state)+cube.h/2+.62;
-    const tq=this.previewQuat(cube,drop.quarter||0,drop.yawOffset||0,drop.pitch||0);const transform={position:[drop.x,y,drop.z],quaternion:[tq.x,tq.y,tq.z,tq.w]};
+    const tq=this.previewQuat(cube,drop.quarter||0,drop.yawOffset||0,drop.pitch||0);
+    const normal=new THREE.Vector3(...(drop.normal||[0,1,0])).normalize();
+    const contact=new THREE.Vector3(Number(drop.x)||0,Number(drop.y)||this.topY(state),Number(drop.z)||0);
+    const extent=this.blockExtentAlongNormal(cube,tq,normal);
+    const start=contact.clone().addScaledVector(normal,extent+.58);
+    const transform={position:[start.x,start.y,start.z],quaternion:[tq.x,tq.y,tq.z,tq.w]};
     const body=this.addDynamic(cube,transform);body.velocity.set(0,-.22,0);body.angularVelocity.set((cube.slantZ||0)*.05,0,(cube.slantX||0)*-.05);order.push(cube.id);
     this.simulating=true;this.simOrder=order;this.simCubes=state.cubes;this.simEnd=performance.now()+3050;this.lastCount=null;this.onCount=onCount;this.frameCamera({...state,stack:[...(state.stack||[]),transform]});
     return new Promise(resolve=>{this.simResolve=resolve});
