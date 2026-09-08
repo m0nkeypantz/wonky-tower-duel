@@ -14,7 +14,9 @@ const el = {
   dockTitle:$('dockTitle'), dockHint:$('dockHint'), rotateBtn:$('rotateBtn'), cubeRack:$('cubeRack'), handCount:$('handCount'), cardHand:$('cardHand'),
   soloMeta:$('soloMeta'), comboValue:$('comboValue'), braveryValue:$('braveryValue'), soloBestMini:$('soloBestMini'),
   gameOverPanel:$('gameOverPanel'), gameOverTitle:$('gameOverTitle'), gameOverText:$('gameOverText'), finalScoreWrap:$('finalScoreWrap'),
-  finalScore:$('finalScore'), rematchBtn:$('rematchBtn'), toast:$('toast')
+  finalScore:$('finalScore'), rematchBtn:$('rematchBtn'), toast:$('toast'),
+  tutorialBtn:$('tutorialBtn'), tutorialOverlay:$('tutorialOverlay'), tutorialStage:$('tutorialStage'), tutorialDots:$('tutorialDots'),
+  tutorialCloseBtn:$('tutorialCloseBtn'), tutorialBackBtn:$('tutorialBackBtn'), tutorialNextBtn:$('tutorialNextBtn')
 };
 
 const COLORS = {pink:0xf50073, blue:0x28a9e8, yellow:0xffe61f};
@@ -686,6 +688,67 @@ async function settlePlacedBlock(cube,drop){
   }catch(e){console.error(e);toast('Physics hiccup. Try that block again.');towerWorld.loadState(state)}finally{settling=false;rotationQuarter=0;rotationYawOffset=0;rotationPitch=0;renderGame()}
 }
 
+const TUTORIAL_KEY='wonkyTutorialSeenV1';
+let tutorialStep=0;
+const tutorialSteps=[
+  {
+    title:'1. Pick a card',
+    text:'Your hand always has four cards. Tap or swipe across them to inspect your options, then release on the card you want to play. The card tells you which block you may use.',
+    caption:'Choose first. The block rack only unlocks cubes that match your selected card.',
+    visual:'<div class="tut-card-row"><div class="tut-card" style="--r:-3deg"><b>PINK</b><i></i><small>SMALL</small></div><div class="tut-card blue focus"><b>BLUE</b><i></i><small>MEDIUM</small></div><div class="tut-card yellow" style="--r:3deg"><b>YELLOW</b><i></i><small>LARGE</small></div></div>'
+  },
+  {
+    title:'2. Drag out a matching cube',
+    text:'After choosing a block card, the matching cubes light up in the rack. Press one and drag it upward into the tower area. Keep holding it while you line up your placement.',
+    caption:'The cube sits slightly below your finger so your fingertip does not hide the landing spot.',
+    visual:'<div class="tut-rack"><span class="tut-cube blue"></span><span class="tut-cube"></span><span class="tut-cube yellow"></span></div><span class="tut-cube blue dragging"></span><span class="tut-arrow" style="left:49%;top:51%">?</span><span class="tut-finger" style="left:62%;top:19%">?</span>'
+  },
+  {
+    title:'3. Use the landing shadow',
+    text:'The dark outline is the bottom face of the cube projected onto the real surface below it. Move slowly and use that outline to judge exactly how much of your cube will be supported.',
+    caption:'The outline follows the actual wonky block face underneath, including its tilt.',
+    visual:'<div class="tut-platform"></div><div class="tut-stack"></div><div class="tut-shadow"></div><div class="tut-held"></div>'
+  },
+  {
+    title:'4. Rotate the cube',
+    text:'Use the ROTATE button for quick quarter-turns. While dragging, you can also touch with a second finger and swipe to flip the block onto different faces. Each snap is a 90? turn.',
+    caption:'Try different faces. A wide face is safer, but a weird face can make a better bridge.',
+    visual:'<div class="tut-rotate-ring"></div><div class="tut-rotate-cube"></div><div class="tut-rotate-icon">?</div><div class="tut-twofinger">??</div>'
+  },
+  {
+    title:'5. Move the camera',
+    text:'Drag on empty space in the tower area to orbit around the stack. Pinch with two fingers to zoom in or out. On desktop, drag to orbit and use the mouse wheel to zoom. Double-click the arena to reset the view.',
+    caption:'Change the angle before a difficult placement. Seeing the edge of the support block makes judging overlap much easier.',
+    visual:'<div class="tut-orbit"></div><div class="tut-camera-tower"><i></i><i></i><i></i></div><div class="tut-cam-finger">?</div><div class="tut-pinch">??</div><div class="tut-zoommarks">? &nbsp; +</div>'
+  },
+  {
+    title:'6. Release, then survive the count',
+    text:'Lift your finger when you are happy with the position. Physics takes over immediately. The tower has to stay standing through the three-count. Stack all nine blocks to finish the tower.',
+    caption:'Once you release, no nudging. If the tower comes apart, gravity gets the point.',
+    visual:'<div class="tut-count">3</div><div class="tut-win">LAND ALL 9 TO WIN</div>'
+  }
+];
+function renderTutorial(){
+  const step=tutorialSteps[tutorialStep];if(!step)return;
+  el.tutorialStage.innerHTML=`<div class="tutorial-step"><div class="tutorial-visual">${step.visual}</div><h3>${step.title}</h3><p>${step.text}</p><div class="tutorial-caption"><b>TIP</b><span>${step.caption}</span></div></div>`;
+  el.tutorialDots.innerHTML=tutorialSteps.map((_,i)=>`<i class="${i===tutorialStep?'active':''}"></i>`).join('');
+  el.tutorialBackBtn.disabled=tutorialStep===0;
+  el.tutorialNextBtn.textContent=tutorialStep===tutorialSteps.length-1?'LET\'S PLAY':'NEXT';
+}
+function openTutorial({firstVisit=false}={}){
+  tutorialStep=0;renderTutorial();el.tutorialOverlay.classList.remove('hidden');
+  if(firstVisit)el.tutorialOverlay.dataset.firstVisit='1';else delete el.tutorialOverlay.dataset.firstVisit;
+  setTimeout(()=>el.tutorialNextBtn.focus(),30);
+}
+function closeTutorial(){
+  localStorage.setItem(TUTORIAL_KEY,'1');el.tutorialOverlay.classList.add('hidden');delete el.tutorialOverlay.dataset.firstVisit;
+}
+function nextTutorial(){
+  if(tutorialStep>=tutorialSteps.length-1){closeTutorial();return}
+  tutorialStep++;renderTutorial();beep('tap');
+}
+function backTutorial(){if(tutorialStep<=0)return;tutorialStep--;renderTutorial();beep('tap')}
+
 function startSolo(resume=false){mode='solo';room=null;myIndex=null;rotationQuarter=0;rotationYawOffset=0;rotationPitch=0;settling=false;solo=resume?loadSolo():freshSolo();if(!solo)solo=freshSolo();history.replaceState({},'',location.pathname+'?solo=1');showOnly('game');renderGame(true)}
 function playSoloCard(c){
   if(!solo||solo.phase!=='choose_card'||!cardPlayable(solo,c)||settling)return;const at=solo.hand.findIndex(x=>x.id===c.id);if(at<0)return;solo.discard.push(c);solo.hand.splice(at,1,drawSoloCard(solo));solo.activeCard=c;solo.phase='placing';solo.message='Drag a matching block onto the tower.';rotationQuarter=0;rotationYawOffset=0;rotationPitch=0;beep('card');haptic(16);saveSolo();renderGame();
@@ -722,6 +785,12 @@ function renderGameOver(state){const over=state.phase==='gameover';el.gameOverPa
 
 el.soloModeBtn.addEventListener('click',()=>{beep('tap');startSolo(false)});
 el.vsModeBtn.addEventListener('click',()=>{beep('tap');enterVsLobby()});
+el.tutorialBtn.addEventListener('click',()=>{beep('tap');openTutorial()});
+el.tutorialCloseBtn.addEventListener('click',closeTutorial);
+el.tutorialBackBtn.addEventListener('click',backTutorial);
+el.tutorialNextBtn.addEventListener('click',nextTutorial);
+el.tutorialOverlay.addEventListener('click',ev=>{if(ev.target===el.tutorialOverlay)closeTutorial()});
+document.addEventListener('keydown',ev=>{if(el.tutorialOverlay.classList.contains('hidden'))return;if(ev.key==='Escape')closeTutorial();else if(ev.key==='ArrowRight')nextTutorial();else if(ev.key==='ArrowLeft')backTutorial()});
 el.homeBtn.addEventListener('click',()=>{beep('tap');location.href='/'});
 el.soundBtn.addEventListener('click',()=>{soundOn=!soundOn;localStorage.setItem('wonkySound',soundOn?'on':'off');setSoundIcon();if(soundOn)beep('tap')});
 el.createRoomBtn.addEventListener('click',createRoom);
@@ -740,4 +809,4 @@ el.towerCanvas.addEventListener('wheel',cameraWheel,{passive:false});
 el.towerCanvas.addEventListener('dblclick',cameraDoubleTap,{passive:true});
 window.addEventListener('resize',()=>towerWorld.resize());
 
-(function boot(){const q=new URLSearchParams(location.search);if(q.get('room')){mode='vs';showOnly('lobby');joinRoomFromUrl()}else if(q.get('solo')==='1'&&loadSolo()){startSolo(true)}else showOnly('home')})();
+(function boot(){const q=new URLSearchParams(location.search);if(q.get('room')){mode='vs';showOnly('lobby');joinRoomFromUrl()}else if(q.get('solo')==='1'&&loadSolo()){startSolo(true)}else showOnly('home');if(!localStorage.getItem(TUTORIAL_KEY))setTimeout(()=>openTutorial({firstVisit:true}),180)})();
