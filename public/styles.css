@@ -32,3 +32,15 @@
 .hand-card.reading .card-top b{font-size:9px}.hand-card.reading .card-top em{font-size:7px}.hand-card.reading .card-footer{font-size:7px;min-height:28px}
 @media(max-height:760px){.card-top{padding-top:3px}.card-top b{font-size:7px}.card-top em{font-size:5px}.card-footer{font-size:5px;min-height:20px}.hand-card.reading{transform:translateY(-28px) scale(1.45) rotate(0)!important}}
 @media(max-height:660px){.card-top b{font-size:6px}.card-top em{display:none}.card-footer{font-size:4.6px;min-height:17px}.hand-card.reading{transform:translateY(-24px) scale(1.38) rotate(0)!important}}
+/* Keep top controls clear of the centered game logo on narrow phones. */
+.topbar{grid-template-columns:36px minmax(0,1fr) 36px;gap:4px;padding-left:0;padding-right:0}
+.topbar .round-btn{width:34px;height:34px;font-size:20px;justify-self:center}
+.brand-lockup{min-width:0;padding:0 4px}
+.brand-lockup span{font-size:clamp(20px,6.2vw,30px)}
+.brand-lockup b{font-size:clamp(9px,2.6vw,13px);white-space:nowrap}
+@media(max-width:390px){
+  .topbar{grid-template-columns:32px minmax(0,1fr) 32px;gap:2px}
+  .topbar .round-btn{width:30px;height:30px;font-size:18px}
+  .brand-lockup span{font-size:24px}
+  .brand-lockup b{font-size:10px}
+}
