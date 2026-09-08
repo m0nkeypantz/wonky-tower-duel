@@ -248,9 +248,39 @@ class TowerWorld {
   }
   pointerToSupport(state,clientX,clientY){
     const surface=this.supportSurface(state),ray=this.pointerRay(clientX,clientY);
+    // Prefer the actual rendered surface of the block underneath. That makes
+    // the marker feel painted onto the block instead of floating on a helper plane.
+    const supportId=surface.support?.transform?.cubeId;
+    const mesh=supportId?this.meshes.get(supportId):null;
+    if(mesh){
+      mesh.updateMatrixWorld(true);
+      const rc=new THREE.Raycaster(ray.origin,ray.direction,.001,100);
+      const hits=rc.intersectObject(mesh,false);
+      const normalMatrix=new THREE.Matrix3().getNormalMatrix(mesh.matrixWorld);
+      for(const h of hits){
+        if(!h.face)continue;
+        const worldNormal=h.face.normal.clone().applyMatrix3(normalMatrix).normalize();
+        if(worldNormal.dot(surface.normal)>.42)return{...surface,hit:h.point.clone(),normal:worldNormal,mesh};
+      }
+    }
     const plane=new THREE.Plane().setFromNormalAndCoplanarPoint(surface.normal,surface.point);
     const hit=new THREE.Vector3();
-    return ray.intersectPlane(plane,hit)?{...surface,hit}:null;
+    return ray.intersectPlane(plane,hit)?{...surface,hit,mesh}:null;
+  }
+  projectMarkerPoint(surface,point){
+    if(!surface.mesh)return point.clone().addScaledVector(surface.normal,.018);
+    const normal=surface.normal.clone().normalize();
+    const origin=point.clone().addScaledVector(normal,1.5);
+    const rc=new THREE.Raycaster(origin,normal.clone().multiplyScalar(-1),.001,3.5);
+    const hits=rc.intersectObject(surface.mesh,false);
+    if(!hits.length)return point.clone().addScaledVector(normal,.018);
+    const normalMatrix=new THREE.Matrix3().getNormalMatrix(surface.mesh.matrixWorld);
+    for(const h of hits){
+      if(!h.face)continue;
+      const n=h.face.normal.clone().applyMatrix3(normalMatrix).normalize();
+      if(n.dot(normal)>.30)return h.point.clone().addScaledVector(n,.018);
+    }
+    return hits[0].point.clone().addScaledVector(normal,.018);
   }
   blockExtentAlongNormal(c,q,normal){
     const axes=[
@@ -269,12 +299,12 @@ class TowerWorld {
     const group=new THREE.Group();
     const fillGeom=new THREE.BufferGeometry();
     fillGeom.setAttribute('position',new THREE.Float32BufferAttribute(new Array(18).fill(0),3));
-    const fillMat=new THREE.MeshBasicMaterial({color:0x15113f,transparent:true,opacity:.11,depthTest:false,depthWrite:false,side:THREE.DoubleSide});
+    const fillMat=new THREE.MeshBasicMaterial({color:0x15113f,transparent:true,opacity:.075,depthTest:false,depthWrite:false,side:THREE.DoubleSide});
     const fill=new THREE.Mesh(fillGeom,fillMat);fill.renderOrder=47;group.add(fill);
 
     const lineGeom=new THREE.BufferGeometry();
     lineGeom.setAttribute('position',new THREE.Float32BufferAttribute(new Array(12).fill(0),3));
-    const lineMat=new THREE.LineBasicMaterial({color:0x15113f,transparent:true,opacity:.72,depthTest:false,depthWrite:false});
+    const lineMat=new THREE.LineBasicMaterial({color:0x15113f,transparent:true,opacity:.88,depthTest:false,depthWrite:false});
     const line=new THREE.LineLoop(lineGeom,lineMat);line.renderOrder=49;group.add(line);
     group.userData.fill=fill;group.userData.line=line;
     return group;
@@ -302,13 +332,16 @@ class TowerWorld {
     let v=normal.clone().cross(u).normalize();
     if(v.dot(faceAxes[1].v)<0)v.multiplyScalar(-1);
     const hu=faceAxes[0].size*.47,hv=faceAxes[1].size*.47;
-    const center=contact.clone().addScaledVector(normal,.025);
-    const corners=[
+    const center=contact.clone();
+    const rawCorners=[
       center.clone().addScaledVector(u,-hu).addScaledVector(v,-hv),
       center.clone().addScaledVector(u, hu).addScaledVector(v,-hv),
       center.clone().addScaledVector(u, hu).addScaledVector(v, hv),
       center.clone().addScaledVector(u,-hu).addScaledVector(v, hv)
     ];
+    // Each corner gets re-projected onto the real wonky mesh underneath. So if
+    // the support face is rotated/slanted/curved, the outline follows it.
+    const corners=rawCorners.map(pt=>this.projectMarkerPoint(surface,pt));
     const lp=this.landingFootprint.userData.line.geometry.attributes.position;
     corners.forEach((pt,i)=>lp.setXYZ(i,pt.x,pt.y,pt.z));lp.needsUpdate=true;
     const fp=this.landingFootprint.userData.fill.geometry.attributes.position;
